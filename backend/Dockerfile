@@ -1,13 +1,9 @@
-FROM node:20-slim
+FROM mcr.microsoft.com/playwright:v1.44.1-jammy
 
 WORKDIR /usr/src/app
 
 COPY package*.json ./
 RUN npm ci --ignore-scripts
-
-# Let Playwright install Chromium AND all its system dependencies automatically
-ENV PLAYWRIGHT_BROWSERS_PATH=/pw-browsers
-RUN npx playwright install --with-deps chromium
 
 COPY . .
 

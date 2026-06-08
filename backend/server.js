@@ -42,17 +42,24 @@ if (geminiKey) {
 const BROWSERLESS_TOKEN = process.env.BROWSERLESS_TOKEN;
 console.log(BROWSERLESS_TOKEN ? '✅ Browserless token found.' : '⚠️ No Browserless token — using local Playwright Chromium.');
 
-// Find the Playwright Chromium binary installed during Docker build
+// Find Chromium binary by scanning known base paths (works with MS Playwright image and custom installs)
 function findPlaywrightChromium() {
-  const base = '/pw-browsers';
-  if (!fs.existsSync(base)) return undefined;
-  for (const dir of fs.readdirSync(base)) {
-    const bin = `${base}/${dir}/chrome-linux/chrome`;
-    if (fs.existsSync(bin)) {
-      console.log(`Found Playwright Chromium at: ${bin}`);
-      return bin;
+  const bases = [
+    '/pw-browsers',          // our custom install path
+    '/ms-playwright',        // Microsoft Playwright Docker image
+    '/root/.cache/ms-playwright', // local dev / non-docker
+  ];
+  for (const base of bases) {
+    if (!fs.existsSync(base)) continue;
+    for (const dir of fs.readdirSync(base)) {
+      const bin = `${base}/${dir}/chrome-linux/chrome`;
+      if (fs.existsSync(bin)) {
+        console.log(`✅ Found Chromium at: ${bin}`);
+        return bin;
+      }
     }
   }
+  console.warn('⚠️ Chromium binary not found in any known path.');
   return undefined;
 }
 const CHROMIUM_PATH = findPlaywrightChromium();
