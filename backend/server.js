@@ -4,11 +4,6 @@ import dotenv from 'dotenv';
 import { chromium } from 'playwright';
 import { GoogleGenAI } from '@google/genai';
 import { createRequire } from 'module';
-import fs from 'fs';
-
-// Override PLAYWRIGHT_BROWSERS_PATH before Playwright reads it.
-// Render injects its own value pointing to an empty cache dir — this fixes it.
-process.env.PLAYWRIGHT_BROWSERS_PATH = '/ms-playwright';
 
 const require = createRequire(import.meta.url);
 
@@ -46,29 +41,9 @@ if (geminiKey) {
 const BROWSERLESS_TOKEN = process.env.BROWSERLESS_TOKEN;
 console.log(BROWSERLESS_TOKEN ? '✅ Browserless token found.' : '⚠️ No Browserless token — using local Playwright Chromium.');
 
-// Find Chromium binary by scanning known base paths (works with MS Playwright image and custom installs)
-function findPlaywrightChromium() {
-  const bases = [
-    '/pw-browsers',          // our custom install path
-    '/ms-playwright',        // Microsoft Playwright Docker image
-    '/root/.cache/ms-playwright', // local dev / non-docker
-  ];
-  for (const base of bases) {
-    if (!fs.existsSync(base)) continue;
-    for (const dir of fs.readdirSync(base)) {
-      const bin = `${base}/${dir}/chrome-linux/chrome`;
-      if (fs.existsSync(bin)) {
-        console.log(`✅ Found Chromium at: ${bin}`);
-        return bin;
-      }
-    }
-  }
-  console.warn('⚠️ Chromium binary not found in any known path.');
-  return undefined;
-}
-const CHROMIUM_PATH = findPlaywrightChromium();
-
-// Helper: connect to Browserless cloud browser (if token set) or local Playwright Chromium
+// Helper: connect to Browserless (cloud) or use Playwright's auto-detected local Chromium
+// In native Render: Chromium is installed to Render's default path during build via:
+//   npx playwright install --with-deps chromium
 async function getBrowser() {
   if (BROWSERLESS_TOKEN) {
     try {
@@ -82,9 +57,8 @@ async function getBrowser() {
       console.error('❌ Browserless connection failed, falling back to local:', err.message);
     }
   }
-  console.log(`Launching local Chromium (${CHROMIUM_PATH || 'auto-detect'})...`);
+  console.log('Launching local Playwright Chromium (auto-detect)...');
   return await chromium.launch({
-    executablePath: CHROMIUM_PATH,
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
   });
