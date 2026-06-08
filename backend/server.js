@@ -49,9 +49,9 @@ if (BROWSERLESS_TOKEN) {
 // Helper: connect to browser via Browserless.io (cloud) or launch locally
 async function getBrowser() {
   if (BROWSERLESS_TOKEN) {
-    console.log('Connecting to Browserless.io cloud browser...');
-    const browser = await chromium.connectOverCDP(
-      `wss://production-sfo.browserless.io?token=${BROWSERLESS_TOKEN}`
+    console.log('Connecting to Browserless.io cloud browser (Playwright mode)...');
+    const browser = await chromium.connect(
+      `wss://production-sfo.browserless.io/playwright/chromium?token=${BROWSERLESS_TOKEN}`
     );
     console.log('Connected to Browserless.io successfully.');
     return browser;
