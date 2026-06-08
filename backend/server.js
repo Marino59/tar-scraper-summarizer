@@ -67,10 +67,16 @@ const CHROMIUM_PATH = findPlaywrightChromium();
 // Helper: connect to Browserless cloud browser (if token set) or local Playwright Chromium
 async function getBrowser() {
   if (BROWSERLESS_TOKEN) {
-    console.log('Connecting to Browserless.io...');
-    return await chromium.connect(
-      `wss://production-sfo.browserless.io/playwright/chromium?token=${BROWSERLESS_TOKEN}`
-    );
+    try {
+      console.log('Connecting to Browserless.io...');
+      const browser = await chromium.connect(
+        `wss://production-sfo.browserless.io/playwright/chromium?token=${BROWSERLESS_TOKEN}`
+      );
+      console.log('✅ Browserless connected successfully!');
+      return browser;
+    } catch (err) {
+      console.error('❌ Browserless connection failed, falling back to local:', err.message);
+    }
   }
   console.log(`Launching local Chromium (${CHROMIUM_PATH || 'auto-detect'})...`);
   return await chromium.launch({
