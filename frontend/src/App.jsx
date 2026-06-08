@@ -18,6 +18,9 @@ function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [error, setError] = useState(null);
 
+  const [autoSummaries, setAutoSummaries] = useState({});
+  const [loadingAutoSummaries, setLoadingAutoSummaries] = useState({});
+
   // List of administrative court divisions
   const sediList = [
     { value: 'all', label: 'Tutte le Sedi' },
@@ -49,6 +52,30 @@ function App() {
   // List of years
   const anniList = ['all', '2026', '2025', '2024', '2023', '2022', '2021', '2020', '2019', '2018'];
 
+  const triggerAutoSummaries = async (items) => {
+    const firstFive = items.slice(0, 5);
+    for (const item of firstFive) {
+      setLoadingAutoSummaries(prev => ({ ...prev, [item.id]: true }));
+      try {
+        const response = await fetch(`${API_URL}/api/summarize`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ url: item.url, format: 'quick' })
+        });
+        const data = await response.json();
+        if (response.ok && data.summary) {
+          setAutoSummaries(prev => ({ ...prev, [item.id]: data.summary }));
+        }
+      } catch (err) {
+        console.error('Failed auto-summary for:', item.id, err);
+      } finally {
+        setLoadingAutoSummaries(prev => ({ ...prev, [item.id]: false }));
+      }
+    }
+  };
+
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!keywords.trim()) return;
@@ -57,6 +84,8 @@ function App() {
     setError(null);
     setSearched(true);
     setResults([]);
+    setAutoSummaries({});
+    setLoadingAutoSummaries({});
 
     try {
       const response = await fetch(`${API_URL}/api/search`, {
@@ -73,6 +102,8 @@ function App() {
       }
 
       setResults(data.results || []);
+      // Avvia la generazione automatica delle sintesi veloci per i primi 5 risultati
+      triggerAutoSummaries(data.results || []);
     } catch (err) {
       console.error(err);
       setError(err.message);
@@ -265,6 +296,31 @@ function App() {
 
                 {item.snippet && (
                   <p className="card-snippet" dangerouslySetInnerHTML={{ __html: item.snippet }}></p>
+                )}
+
+                {/* Auto Quick Summary Box */}
+                {(autoSummaries[item.id] || loadingAutoSummaries[item.id]) && (
+                  <div className="auto-summary-box" style={{ 
+                    marginTop: '0.5rem', 
+                    padding: '1rem', 
+                    borderRadius: 'var(--radius-md)', 
+                    backgroundColor: 'rgba(212, 175, 55, 0.05)', 
+                    border: '1px dashed rgba(212, 175, 55, 0.2)' 
+                  }}>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--color-accent)', fontWeight: 600, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="pulse-dot" style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-accent)', display: 'inline-block' }}></span>
+                      Sintesi Veloce Automatica
+                    </div>
+                    {loadingAutoSummaries[item.id] ? (
+                      <p className="pulse" style={{ fontSize: '0.9rem', color: 'var(--color-muted)' }}>Generazione sintesi in corso...</p>
+                    ) : (
+                      <div 
+                        className="summary-body" 
+                        style={{ fontSize: '0.9rem', color: 'var(--color-text)' }}
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(autoSummaries[item.id]) }}
+                      ></div>
+                    )}
+                  </div>
                 )}
 
                 <div className="card-footer">
