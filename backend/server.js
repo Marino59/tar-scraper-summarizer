@@ -6,6 +6,10 @@ import { GoogleGenAI } from '@google/genai';
 import { createRequire } from 'module';
 import fs from 'fs';
 
+// Override PLAYWRIGHT_BROWSERS_PATH before Playwright reads it.
+// Render injects its own value pointing to an empty cache dir — this fixes it.
+process.env.PLAYWRIGHT_BROWSERS_PATH = '/ms-playwright';
+
 const require = createRequire(import.meta.url);
 
 // Polyfill process.getBuiltinModule for Node.js versions older than 20.16.0
