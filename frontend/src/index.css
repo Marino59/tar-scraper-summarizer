@@ -141,8 +141,8 @@ body {
 }
 
 .form-select option {
-  background-color: var(--bg-secondary);
-  color: var(--color-text);
+  color: #111827;
+  background-color: #ffffff;
 }
 
 .btn-search {
