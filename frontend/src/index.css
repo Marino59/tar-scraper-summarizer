@@ -140,6 +140,11 @@ body {
   box-shadow: 0 0 10px rgba(212, 175, 55, 0.15);
 }
 
+.form-select option {
+  background-color: var(--bg-secondary);
+  color: var(--color-text);
+}
+
 .btn-search {
   margin-top: 1rem;
   padding: 1rem;
