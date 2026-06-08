@@ -316,6 +316,22 @@ app.post('/api/summarize', async (req, res) => {
 
   } catch (error) {
     console.error('[Summarize API] ❌ Critical Error during summarization operation:', error);
+    
+    const isQuotaError = error.status === 429 || 
+                         (error.message && (
+                           error.message.includes('429') || 
+                           error.message.toLowerCase().includes('quota') || 
+                           error.message.includes('RESOURCE_EXHAUSTED')
+                         ));
+                         
+    if (isQuotaError) {
+      console.warn('[Summarize API] Gracefully handling 429 Quota Exceeded error.');
+      return res.json({
+        success: true,
+        summary: `⚠️ **Limite Quota API Gemini Raggiunto**\n\nHai temporaneamente esaurito le richieste gratuite giornaliere o al minuto messe a disposizione da Google per questo modello di IA (errore *429 Resource Exhausted*).\n\nQuesto limite si azzera automaticamente. Riprova tra poco o domani, oppure configura una chiave API differente o con fatturazione attiva.`
+      });
+    }
+
     res.status(500).json({ 
       error: 'Errore durante la generazione del riassunto tramite Gemini API.', 
       details: error.stack || error.message 
