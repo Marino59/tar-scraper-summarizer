@@ -69,7 +69,7 @@ function App() {
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Errore durante la ricerca.');
+        throw new Error(data.details || data.error || 'Errore durante la ricerca.');
       }
 
       setResults(data.results || []);
@@ -99,7 +99,7 @@ function App() {
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Errore durante la generazione del riassunto.');
+        throw new Error(data.details || data.error || 'Errore durante la generazione del riassunto.');
       }
 
       setSelectedSummary(data.summary);

@@ -153,7 +153,7 @@ app.post('/api/search', async (req, res) => {
 
   } catch (error) {
     console.error('Error in search endpoint:', error);
-    res.status(500).json({ error: 'Errore durante la ricerca automatizzata delle sentenze.', details: error.message });
+    res.status(500).json({ error: 'Errore durante la ricerca automatizzata delle sentenze.', details: error.stack || error.message });
   } finally {
     if (browser) {
       await browser.close();
@@ -284,7 +284,7 @@ ${judgmentText}`;
 
   } catch (error) {
     console.error('Error in summarize endpoint:', error);
-    res.status(500).json({ error: 'Errore durante la generazione del riassunto tramite Gemini API.', details: error.message });
+    res.status(500).json({ error: 'Errore durante la generazione del riassunto tramite Gemini API.', details: error.stack || error.message });
   } finally {
     if (browser) {
       await browser.close();
