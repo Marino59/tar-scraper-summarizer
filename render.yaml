@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: tar-scraper-summarizer-backend
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: GEMINI_API_KEY
+        sync: false
