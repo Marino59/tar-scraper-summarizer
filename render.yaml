@@ -4,8 +4,11 @@ services:
     runtime: docker
     dockerfilePath: backend/Dockerfile
     dockerContext: backend
+    preDeployCommand: ""
     envVars:
       - key: PORT
         value: 10000
       - key: GEMINI_API_KEY
+        sync: false
+      - key: BROWSERLESS_TOKEN
         sync: false
