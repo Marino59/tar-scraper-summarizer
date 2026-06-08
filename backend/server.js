@@ -6,21 +6,20 @@ import { GoogleGenAI } from '@google/genai';
 import { createRequire } from 'module';
 import fs from 'fs';
 
-// Detect Chromium path: use pre-installed Docker path if available,
-// otherwise let Playwright auto-detect. This bypasses any env var override by Render.
+// Detect Chromium path: try system-installed chromium first (apt), then known Docker paths
 function getChromiumExecutablePath() {
-  const knownDockerPaths = [
-    '/ms-playwright/chromium-1117/chrome-linux/chrome',
-    '/ms-playwright/chromium-1148/chrome-linux/chrome',
-    '/ms-playwright/chromium-1112/chrome-linux/chrome'
+  const knownPaths = [
+    '/usr/bin/chromium',           // apt-installed on Debian/Ubuntu (node:20-slim)
+    '/usr/bin/chromium-browser',   // alternative apt path
+    '/usr/bin/google-chrome',      // google-chrome if installed
   ];
-  for (const p of knownDockerPaths) {
+  for (const p of knownPaths) {
     if (fs.existsSync(p)) {
       console.log(`Found Chromium at: ${p}`);
       return p;
     }
   }
-  console.log('Chromium not found at known Docker paths, letting Playwright auto-detect.');
+  console.log('Chromium not found at known paths, letting Playwright auto-detect.');
   return undefined;
 }
 const CHROMIUM_PATH = getChromiumExecutablePath();
