@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { chromium } from 'playwright';
 import { GoogleGenAI } from '@google/genai';
 import { createRequire } from 'module';
+import { PDFParse } from 'pdf-parse';
 
 const require = createRequire(import.meta.url);
 
@@ -14,9 +15,6 @@ if (typeof process.getBuiltinModule !== 'function') {
     return require(cleanId);
   };
 }
-
-const pdfParser = require('pdf-parse');
-const pdf = typeof pdfParser === 'function' ? pdfParser : (pdfParser.default || pdfParser);
 
 dotenv.config();
 
@@ -243,9 +241,10 @@ app.post('/api/summarize', async (req, res) => {
       if (!response.ok) {
         throw new Error(`Failed to download PDF: ${response.statusText}`);
       }
-      console.log('[Summarize API] PDF buffer downloaded. Parsing content...');
+      console.log('[Summarize API] PDF buffer downloaded. Parsing content using PDFParse...');
       const buffer = Buffer.from(await response.arrayBuffer());
-      const pdfData = await pdf(buffer);
+      const parser = new PDFParse({ data: buffer });
+      const pdfData = await parser.getText();
       judgmentText = pdfData.text;
     } else {
       console.log('[Summarize API] [Step 1/3] URL detected as HTML. Initializing browser...');
