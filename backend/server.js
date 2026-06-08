@@ -38,18 +38,25 @@ if (geminiKey) {
   console.warn('WARNING: GEMINI_API_KEY is not set. Summarization feature will return placeholder text.');
 }
 
+// Startup check: log whether Browserless token is configured
+const BROWSERLESS_TOKEN = process.env.BROWSERLESS_TOKEN;
+if (BROWSERLESS_TOKEN) {
+  console.log('✅ BROWSERLESS_TOKEN found — will use Browserless.io cloud browser.');
+} else {
+  console.error('❌ BROWSERLESS_TOKEN NOT SET — local Chromium will be used (may fail on Render).');
+}
+
 // Helper: connect to browser via Browserless.io (cloud) or launch locally
 async function getBrowser() {
-  const browserlessToken = process.env.BROWSERLESS_TOKEN;
-  if (browserlessToken) {
+  if (BROWSERLESS_TOKEN) {
     console.log('Connecting to Browserless.io cloud browser...');
     const browser = await chromium.connectOverCDP(
-      `wss://production-sfo.browserless.io?token=${browserlessToken}`
+      `wss://production-sfo.browserless.io?token=${BROWSERLESS_TOKEN}`
     );
     console.log('Connected to Browserless.io successfully.');
     return browser;
   } else {
-    console.log('BROWSERLESS_TOKEN not set, launching local browser...');
+    console.log('Launching local browser (fallback)...');
     return await chromium.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
