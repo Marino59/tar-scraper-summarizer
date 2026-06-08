@@ -4,31 +4,12 @@ import dotenv from 'dotenv';
 import { chromium } from 'playwright';
 import { GoogleGenAI } from '@google/genai';
 import { createRequire } from 'module';
-import fs from 'fs';
 
-// Detect Chromium path: try system-installed chromium first (apt), then known Docker paths
-function getChromiumExecutablePath() {
-  const knownPaths = [
-    '/usr/bin/chromium',           // apt-installed on Debian/Ubuntu (node:20-slim)
-    '/usr/bin/chromium-browser',   // alternative apt path
-    '/usr/bin/google-chrome',      // google-chrome if installed
-  ];
-  for (const p of knownPaths) {
-    if (fs.existsSync(p)) {
-      console.log(`Found Chromium at: ${p}`);
-      return p;
-    }
-  }
-  console.log('Chromium not found at known paths, letting Playwright auto-detect.');
-  return undefined;
-}
-const CHROMIUM_PATH = getChromiumExecutablePath();
 const require = createRequire(import.meta.url);
 
 // Polyfill process.getBuiltinModule for Node.js versions older than 20.16.0
 if (typeof process.getBuiltinModule !== 'function') {
   process.getBuiltinModule = function(id) {
-    // strip 'node:' prefix if present as require() doesn't need it on older node versions
     const cleanId = id.startsWith('node:') ? id.substring(5) : id;
     return require(cleanId);
   };
@@ -45,7 +26,6 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-// Helper to sanitize inputs and log actions
 console.log('Initializing backend server...');
 
 // Initialize Gemini Client
@@ -56,6 +36,25 @@ if (geminiKey) {
   console.log('Gemini API client initialized successfully.');
 } else {
   console.warn('WARNING: GEMINI_API_KEY is not set. Summarization feature will return placeholder text.');
+}
+
+// Helper: connect to browser via Browserless.io (cloud) or launch locally
+async function getBrowser() {
+  const browserlessToken = process.env.BROWSERLESS_TOKEN;
+  if (browserlessToken) {
+    console.log('Connecting to Browserless.io cloud browser...');
+    const browser = await chromium.connectOverCDP(
+      `wss://production-sfo.browserless.io?token=${browserlessToken}`
+    );
+    console.log('Connected to Browserless.io successfully.');
+    return browser;
+  } else {
+    console.log('BROWSERLESS_TOKEN not set, launching local browser...');
+    return await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+  }
 }
 
 /**
@@ -73,11 +72,7 @@ app.post('/api/search', async (req, res) => {
 
   let browser;
   try {
-    browser = await chromium.launch({
-      headless: true,
-      executablePath: CHROMIUM_PATH,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+    browser = await getBrowser();
     const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     });
@@ -117,8 +112,6 @@ app.post('/api/search', async (req, res) => {
     await page.click(submitBtnSelector);
 
     // Wait for the results to update.
-    // Liferay updates the DOM dynamically. We can wait for network idle or a short delay.
-    // Waiting for either the result list items or a text "Trovati"
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(3000);
 
@@ -141,7 +134,6 @@ app.post('/api/search', async (req, res) => {
           sezione = boldElements[2] ? boldElements[2].innerText.trim() : '';
           numeroProvv = boldElements[3] ? boldElements[3].innerText.trim() : '';
         } else {
-          // Fallback parsing from text content
           const text = card.innerText;
           const match = text.match(/(SENTENZA|ORDINANZA|DECRETO|PARERE)\s+sede\s+di\s+([^,]+),\s+sezione\s+([^,]+),\s+numero\s+provv\.:\s*(\d+)/i);
           if (match) {
@@ -223,17 +215,12 @@ app.post('/api/summarize', async (req, res) => {
       const pdfData = await pdf(buffer);
       judgmentText = pdfData.text;
     } else {
-      browser = await chromium.launch({
-        headless: true,
-        executablePath: CHROMIUM_PATH,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      });
+      browser = await getBrowser();
       const context = await browser.newContext({
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       });
       const page = await context.newPage();
 
-      // Navigate to judgment page
       await page.goto(url, {
         waitUntil: 'domcontentloaded',
         timeout: 20000
@@ -258,37 +245,11 @@ app.post('/api/summarize', async (req, res) => {
       console.warn('Gemini client not initialized. Returning mock summary.');
       return res.json({
         success: true,
-        summary: `### [MOCK] Riassunto del Provvedimento (Nessuna API Key configurata)
-        
-L'applicazione ha estratto correttamente il testo del provvedimento (${judgmentText.length} caratteri).
-Configura la variabile d'ambiente \`GEMINI_API_KEY\` nel file \`backend/.env\` per attivare i riassunti intelligenti di Google Gemini.
-
-**Anteprima del testo estratto:**
-${judgmentText.substring(0, 500)}...`
+        summary: `### [MOCK] Riassunto del Provvedimento (Nessuna API Key configurata)\n        \nL'applicazione ha estratto correttamente il testo del provvedimento (${judgmentText.length} caratteri).\nConfigura la variabile d'ambiente \`GEMINI_API_KEY\` nel file \`backend/.env\` per attivare i riassunti intelligenti di Google Gemini.\n\n**Anteprima del testo estratto:**\n${judgmentText.substring(0, 500)}...`
       });
     }
 
-    const prompt = `Sei un assistente legale esperto di diritto amministrativo italiano. Analizza il seguente testo di un provvedimento (sentenza/ordinanza/decreto/parere) della Giustizia Amministrativa italiana ed elabora un riassunto estremamente chiaro, sintetico e professionale strutturato in lingua italiana.
-
-Struttura il riassunto esattamente in questo formato Markdown:
-
-# Riassunto Sentenza: [Mettere il Numero del provvedimento / Anno e il TAR/Organo Decidente]
-
-## 1. Oggetto del Contendere
-[Spiega in 2-3 frasi qual è l'oggetto della causa, la materia e il provvedimento amministrativo impugnato]
-
-## 2. Decisione dell'Organo Giudicante
-[Indica chiaramente se il ricorso è stato accolto, respinto, dichiarato improcedibile o inammissibile e la formula decisionale principale]
-
-## 3. Motivazioni Principali della Decisione
-[Fornisci un elenco puntato dettagliato dei principali punti in fatto e in diritto che hanno portato il giudice a questa decisione]
-
-## 4. Punti Chiave e Massime da Ricordare
-[Sintetizza i principi di diritto espressi o le norme chiave interpretate nella decisione]
-
----
-Ecco il testo del provvedimento:
-${judgmentText}`;
+    const prompt = `Sei un assistente legale esperto di diritto amministrativo italiano. Analizza il seguente testo di un provvedimento (sentenza/ordinanza/decreto/parere) della Giustizia Amministrativa italiana ed elabora un riassunto estremamente chiaro, sintetico e professionale strutturato in lingua italiana.\n\nStruttura il riassunto esattamente in questo formato Markdown:\n\n# Riassunto Sentenza: [Mettere il Numero del provvedimento / Anno e il TAR/Organo Decidente]\n\n## 1. Oggetto del Contendere\n[Spiega in 2-3 frasi qual è l'oggetto della causa, la materia e il provvedimento amministrativo impugnato]\n\n## 2. Decisione dell'Organo Giudicante\n[Indica chiaramente se il ricorso è stato accolto, respinto, dichiarato improcedibile o inammissibile e la formula decisionale principale]\n\n## 3. Motivazioni Principali della Decisione\n[Fornisci un elenco puntato dettagliato dei principali punti in fatto e in diritto che hanno portato il giudice a questa decisione]\n\n## 4. Punti Chiave e Massime da Ricordare\n[Sintetizza i principi di diritto espressi o le norme chiave interpretate nella decisione]\n\n---\nEcco il testo del provvedimento:\n${judgmentText}`;
 
     console.log('Sending prompt to Gemini API...');
     const modelToUse = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
@@ -301,7 +262,6 @@ ${judgmentText}`;
       });
     } catch (apiErr) {
       console.warn(`Primary model ${modelToUse} failed. Trying fallback model...`, apiErr.message);
-      // Fallback model
       const fallbackModel = modelToUse === 'gemini-2.0-flash' ? 'gemini-2.5-flash' : 'gemini-2.0-flash';
       console.log(`Attempting generation with fallback model: ${fallbackModel}`);
       response = await aiClient.models.generateContent({
