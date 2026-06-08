@@ -6,6 +6,6 @@ services:
     dockerContext: backend
     envVars:
       - key: PORT
-        value: 3001
+        value: 10000
       - key: GEMINI_API_KEY
         sync: false

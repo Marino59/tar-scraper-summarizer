@@ -11,7 +11,7 @@ RUN npm ci
 COPY . .
 
 # Expose backend port
-EXPOSE 3001
+EXPOSE 10000
 
 # Start the application
 CMD ["node", "server.js"]
