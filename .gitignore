@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+dist/
+build/
+.env
+
+# Playwright
+/backend/selectors.txt
+/backend/results.txt
+/backend/results_structure.txt
+/backend/judgment.txt
+/backend/models.json
+/backend/models.txt
+
+# Local files
+.DS_Store
+*.local
