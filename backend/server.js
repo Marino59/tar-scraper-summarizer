@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { chromium } from 'playwright';
 import { GoogleGenAI } from '@google/genai';
 import { createRequire } from 'module';
+import fs from 'fs';
 
 const require = createRequire(import.meta.url);
 
@@ -39,9 +40,24 @@ if (geminiKey) {
 }
 
 const BROWSERLESS_TOKEN = process.env.BROWSERLESS_TOKEN;
-console.log(BROWSERLESS_TOKEN ? '✅ Browserless token found.' : '⚠️ No Browserless token — using local /usr/bin/chromium.');
+console.log(BROWSERLESS_TOKEN ? '✅ Browserless token found.' : '⚠️ No Browserless token — using local Playwright Chromium.');
 
-// Helper: connect to Browserless cloud browser (if token set) or local apt Chromium
+// Find the Playwright Chromium binary installed during Docker build
+function findPlaywrightChromium() {
+  const base = '/pw-browsers';
+  if (!fs.existsSync(base)) return undefined;
+  for (const dir of fs.readdirSync(base)) {
+    const bin = `${base}/${dir}/chrome-linux/chrome`;
+    if (fs.existsSync(bin)) {
+      console.log(`Found Playwright Chromium at: ${bin}`);
+      return bin;
+    }
+  }
+  return undefined;
+}
+const CHROMIUM_PATH = findPlaywrightChromium();
+
+// Helper: connect to Browserless cloud browser (if token set) or local Playwright Chromium
 async function getBrowser() {
   if (BROWSERLESS_TOKEN) {
     console.log('Connecting to Browserless.io...');
@@ -49,10 +65,9 @@ async function getBrowser() {
       `wss://production-sfo.browserless.io/playwright/chromium?token=${BROWSERLESS_TOKEN}`
     );
   }
-  // Use system Chromium installed via apt in Docker (fixed path, no env var)
-  console.log('Launching local Chromium at /usr/bin/chromium...');
+  console.log(`Launching local Chromium (${CHROMIUM_PATH || 'auto-detect'})...`);
   return await chromium.launch({
-    executablePath: '/usr/bin/chromium',
+    executablePath: CHROMIUM_PATH,
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
   });
