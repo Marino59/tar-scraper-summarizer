@@ -4,6 +4,26 @@ import dotenv from 'dotenv';
 import { chromium } from 'playwright';
 import { GoogleGenAI } from '@google/genai';
 import { createRequire } from 'module';
+import fs from 'fs';
+
+// Detect Chromium path: use pre-installed Docker path if available,
+// otherwise let Playwright auto-detect. This bypasses any env var override by Render.
+function getChromiumExecutablePath() {
+  const knownDockerPaths = [
+    '/ms-playwright/chromium-1117/chrome-linux/chrome',
+    '/ms-playwright/chromium-1148/chrome-linux/chrome',
+    '/ms-playwright/chromium-1112/chrome-linux/chrome'
+  ];
+  for (const p of knownDockerPaths) {
+    if (fs.existsSync(p)) {
+      console.log(`Found Chromium at: ${p}`);
+      return p;
+    }
+  }
+  console.log('Chromium not found at known Docker paths, letting Playwright auto-detect.');
+  return undefined;
+}
+const CHROMIUM_PATH = getChromiumExecutablePath();
 const require = createRequire(import.meta.url);
 
 // Polyfill process.getBuiltinModule for Node.js versions older than 20.16.0
@@ -56,6 +76,7 @@ app.post('/api/search', async (req, res) => {
   try {
     browser = await chromium.launch({
       headless: true,
+      executablePath: CHROMIUM_PATH,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
     const context = await browser.newContext({
@@ -205,6 +226,7 @@ app.post('/api/summarize', async (req, res) => {
     } else {
       browser = await chromium.launch({
         headless: true,
+        executablePath: CHROMIUM_PATH,
         args: ['--no-sandbox', '--disable-setuid-sandbox']
       });
       const context = await browser.newContext({
