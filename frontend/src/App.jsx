@@ -81,7 +81,7 @@ function App() {
     }
   };
 
-  const handleSummarize = async (judgment) => {
+  const handleSummarize = async (judgment, format = 'detailed') => {
     setLoadingSummary(true);
     setSelectedJudgment(judgment);
     setSelectedSummary(null);
@@ -94,7 +94,7 @@ function App() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ url: judgment.url })
+        body: JSON.stringify({ url: judgment.url, format })
       });
 
       const data = await response.json();
@@ -279,10 +279,17 @@ function App() {
                       Apri Originale
                     </a>
                     <button
-                      onClick={() => handleSummarize(item)}
+                      onClick={() => handleSummarize(item, 'quick')}
+                      className="btn-action"
+                      style={{ borderColor: 'var(--color-accent)', color: 'var(--color-accent)' }}
+                    >
+                      Sintesi Veloce
+                    </button>
+                    <button
+                      onClick={() => handleSummarize(item, 'detailed')}
                       className="btn-action btn-action-primary"
                     >
-                      Riassunto IA
+                      Riassunto Completo
                     </button>
                   </div>
                 </div>

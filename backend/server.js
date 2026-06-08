@@ -219,14 +219,14 @@ app.post('/api/search', async (req, res) => {
  * Body: { url }
  */
 app.post('/api/summarize', async (req, res) => {
-  const { url } = req.body;
+  const { url, format } = req.body; // format: 'quick' | 'detailed'
 
   if (!url) {
     console.warn('[Summarize API] ⚠️ Rejected: Missing URL.');
     return res.status(400).json({ error: 'URL del provvedimento obbligatorio.' });
   }
 
-  console.log(`[Summarize API] 🚀 Requested summary for URL: ${url}`);
+  console.log(`[Summarize API] 🚀 Requested summary for URL: ${url} (Format: ${format || 'detailed'})`);
 
   let browser;
   try {
@@ -287,7 +287,11 @@ app.post('/api/summarize', async (req, res) => {
       });
     }
 
-    const prompt = `Sei un assistente legale esperto di diritto amministrativo italiano. Analizza il seguente testo di un provvedimento (sentenza/ordinanza/decreto/parere) della Giustizia Amministrativa italiana ed elabora un riassunto estremamente chiaro, sintetico e professionale strutturato in lingua italiana.\n\nStruttura il riassunto esattamente in questo formato Markdown:\n\n# Riassunto Sentenza: [Mettere il Numero del provvedimento / Anno e il TAR/Organo Decidente]\n\n## 1. Oggetto del Contendere\n[Spiega in 2-3 frasi qual è l'oggetto della causa, la materia e il provvedimento amministrativo impugnato]\n\n## 2. Decisione dell'Organo Giudicante\n[Indica chiaramente se il ricorso è stato accolto, respinto, dichiarato improcedibile o inammissibile e la formula decisionale principale]\n\n## 3. Motivazioni Principali della Decisione\n[Fornisci un elenco puntato dettagliato dei principali punti in fatto e in diritto che hanno portato il giudice a questa decisione]\n\n## 4. Punti Chiave e Massime da Ricordare\n[Sintetizza i principi di diritto espressi o le norme chiave interpretate nella decisione]\n\n---\nEcco il testo del provvedimento:\n${judgmentText}`;
+    const promptDetailed = `Sei un assistente legale esperto di diritto amministrativo italiano. Analizza il seguente testo di un provvedimento (sentenza/ordinanza/decreto/parere) della Giustizia Amministrativa italiana ed elabora un riassunto estremamente chiaro, sintetico e professionale strutturato in lingua italiana.\n\nStruttura il riassunto esattamente in questo formato Markdown:\n\n# Riassunto Sentenza: [Mettere il Numero del provvedimento / Anno e il TAR/Organo Decidente]\n\n## 1. Oggetto del Contendere\n[Spiega in 2-3 frasi qual è l'oggetto della causa, la materia e il provvedimento amministrativo impugnato]\n\n## 2. Decisione dell'Organo Giudicante\n[Indica chiaramente se il ricorso è stato accolto, respinto, dichiarato improcedibile o inammissibile e la formula decisionale principale]\n\n## 3. Motivazioni Principali della Decisione\n[Fornisci un elenco puntato dettagliato dei principali punti in fatto e in diritto che hanno portato il giudice a questa decisione]\n\n## 4. Punti Chiave e Massime da Ricordare\n[Sintetizza i principi di diritto espressi o le norme chiave interpretate nella decisione]\n\n---\nEcco il testo del provvedimento:\n${judgmentText}`;
+
+    const promptQuick = `Sei un assistente legale esperto di diritto amministrativo italiano. Analizza il seguente testo di un provvedimento (sentenza/ordinanza/decreto/parere) della Giustizia Amministrativa italiana ed elabora una sintesi ultra-rapida (massimo 100 parole) in lingua italiana.\n\nStruttura la sintesi esattamente in questo formato Markdown:\n\n# Sintesi Rapida: [Numero Provvedimento / Anno - TAR/Organo Decidente]\n\n* **Oggetto della Causa:** [Spiega in una singola frase chiara di cosa tratta la causa]\n* **Esito della Decisione:** [Indica l'esito principale: es. Accolto / Respinto / Inammissibile]\n* **Motivazione/Principio Cardine:** [Spiega il motivo principale della decisione o il principio cardine stabilito dai giudici in max due frasi]\n\n---\nEcco il testo del provvedimento:\n${judgmentText}`;
+
+    const prompt = format === 'quick' ? promptQuick : promptDetailed;
 
     console.log('[Summarize API] [Step 3/3] Sending prompt to Google Gemini API...');
     const modelToUse = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
