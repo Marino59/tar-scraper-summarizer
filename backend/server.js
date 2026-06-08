@@ -39,9 +39,9 @@ if (geminiKey) {
 }
 
 const BROWSERLESS_TOKEN = process.env.BROWSERLESS_TOKEN;
-console.log(BROWSERLESS_TOKEN ? '✅ Browserless token found.' : '⚠️ No Browserless token — using local Chromium.');
+console.log(BROWSERLESS_TOKEN ? '✅ Browserless token found.' : '⚠️ No Browserless token — using local /usr/bin/chromium.');
 
-// Helper: connect to Browserless cloud browser (if token set) or local Chromium
+// Helper: connect to Browserless cloud browser (if token set) or local apt Chromium
 async function getBrowser() {
   if (BROWSERLESS_TOKEN) {
     console.log('Connecting to Browserless.io...');
@@ -49,8 +49,10 @@ async function getBrowser() {
       `wss://production-sfo.browserless.io/playwright/chromium?token=${BROWSERLESS_TOKEN}`
     );
   }
-  console.log('Launching local Chromium...');
+  // Use system Chromium installed via apt in Docker (fixed path, no env var)
+  console.log('Launching local Chromium at /usr/bin/chromium...');
   return await chromium.launch({
+    executablePath: '/usr/bin/chromium',
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
   });
