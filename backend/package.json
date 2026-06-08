@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test-scraper": "node test-scraper.js"
+    "test-scraper": "node test-scraper.js",
+    "postinstall": "npx playwright install chromium"
   },
   "dependencies": {
     "@google/genai": "*",
