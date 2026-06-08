@@ -5,6 +5,16 @@ import { chromium } from 'playwright';
 import { GoogleGenAI } from '@google/genai';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
+
+// Polyfill process.getBuiltinModule for Node.js versions older than 20.16.0
+if (typeof process.getBuiltinModule !== 'function') {
+  process.getBuiltinModule = function(id) {
+    // strip 'node:' prefix if present as require() doesn't need it on older node versions
+    const cleanId = id.startsWith('node:') ? id.substring(5) : id;
+    return require(cleanId);
+  };
+}
+
 const pdfParser = require('pdf-parse');
 const pdf = typeof pdfParser === 'function' ? pdfParser : (pdfParser.default || pdfParser);
 
