@@ -39,9 +39,7 @@ if (geminiKey) {
 }
 
 const BROWSERLESS_TOKEN = process.env.BROWSERLESS_TOKEN;
-console.log(BROWSERLESS_TOKEN ? '✅ Browserless token found.' : '⚠️ No Browserless token — using local Playwright Chromi// Helper: connect to Browserless (cloud) or use Playwright's auto-detected local Chromium
-// In native Render: Chromium is installed to Render's default path during build via:
-//   npx playwright install --with-deps chromium
+console.log(BROWSERLESS_TOKEN ? '✅ Browserless token found.' : '⚠️ No Browserless token — using local Playwright Chromium.');
 async function getBrowser() {
   if (BROWSERLESS_TOKEN) {
     try {
