@@ -39,29 +39,41 @@ if (geminiKey) {
 }
 
 const BROWSERLESS_TOKEN = process.env.BROWSERLESS_TOKEN;
-console.log(BROWSERLESS_TOKEN ? '✅ Browserless token found.' : '⚠️ No Browserless token — using local Playwright Chromium.');
-
-// Helper: connect to Browserless (cloud) or use Playwright's auto-detected local Chromium
+console.log(BROWSERLESS_TOKEN ? '✅ Browserless token found.' : '⚠️ No Browserless token — using local Playwright Chromi// Helper: connect to Browserless (cloud) or use Playwright's auto-detected local Chromium
 // In native Render: Chromium is installed to Render's default path during build via:
 //   npx playwright install --with-deps chromium
 async function getBrowser() {
   if (BROWSERLESS_TOKEN) {
     try {
-      console.log('Connecting to Browserless.io...');
+      const maskedToken = BROWSERLESS_TOKEN.length > 8 
+        ? `${BROWSERLESS_TOKEN.substring(0, 4)}...${BROWSERLESS_TOKEN.substring(BROWSERLESS_TOKEN.length - 4)}` 
+        : '***';
+      console.log(`[getBrowser] Attempting to connect to Browserless.io (Token: ${maskedToken})...`);
       const browser = await chromium.connect(
         `wss://production-sfo.browserless.io/playwright/chromium?token=${BROWSERLESS_TOKEN}`
       );
-      console.log('✅ Browserless connected successfully!');
+      console.log('[getBrowser] ✅ Browserless connected successfully!');
       return browser;
     } catch (err) {
-      console.error('❌ Browserless connection failed, falling back to local:', err.message);
+      console.error('[getBrowser] ❌ Browserless connection failed! Details:', err);
+      console.log('[getBrowser] Falling back to local Playwright Chromium...');
     }
+  } else {
+    console.log('[getBrowser] No BROWSERLESS_TOKEN found in environment variables. Using local browser.');
   }
-  console.log('Launching local Playwright Chromium (auto-detect)...');
-  return await chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-  });
+  
+  try {
+    console.log('[getBrowser] Launching local Playwright Chromium (auto-detect)...');
+    const browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    });
+    console.log('[getBrowser] ✅ Local Chromium launched successfully!');
+    return browser;
+  } catch (err) {
+    console.error('[getBrowser] ❌ Failed to launch local Chromium! Details:', err);
+    throw err;
+  }
 }
 
 /**
@@ -72,57 +84,67 @@ app.post('/api/search', async (req, res) => {
   const { keywords, sede, tipo, anno } = req.body;
   
   if (!keywords) {
+    console.warn('[Search API] ⚠️ Rejected: Missing keywords.');
     return res.status(400).json({ error: 'Parole chiave di ricerca obbligatorie (keywords).' });
   }
 
-  console.log(`Starting search for: "${keywords}" (Sede: ${sede || 'Tutte'}, Tipo: ${tipo || 'Tutti'}, Anno: ${anno || 'Tutti'})`);
+  console.log(`[Search API] 🚀 Starting search. Keywords: "${keywords}", Sede: "${sede}", Tipo: "${tipo}", Anno: "${anno}"`);
 
   let browser;
   try {
+    console.log('[Search API] [Step 1/8] Requesting browser instance...');
     browser = await getBrowser();
+    
+    console.log('[Search API] [Step 2/8] Creating context and new page...');
     const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     });
     const page = await context.newPage();
 
-    // Go to search page
+    console.log('[Search API] [Step 3/8] Navigating to search portal...');
     await page.goto('https://www.giustizia-amministrativa.it/web/guest/dcsnprr', {
       waitUntil: 'domcontentloaded',
       timeout: 25000
     });
+    console.log('[Search API] Portal base page loaded.');
 
     const searchInputSelector = 'input[id$="searchtextProvvedimenti"]';
-    await page.waitForSelector(searchInputSelector);
+    console.log('[Search API] [Step 4/8] Waiting for search text field...');
+    await page.waitForSelector(searchInputSelector, { timeout: 15000 });
 
     // Apply Sede (Court) if specified
     if (sede && sede !== 'all') {
       const sedeSelector = 'select[id$="sedeProvvedimenti"]';
+      console.log(`[Search API] Selecting court (sede): "${sede}"`);
       await page.selectOption(sedeSelector, { label: sede });
     }
 
     // Apply Tipo (Type) if specified
     if (tipo && tipo !== 'all') {
       const tipoSelector = 'select[id$="TipoProvvedimentoItem"]';
+      console.log(`[Search API] Selecting type (tipo): "${tipo}"`);
       await page.selectOption(tipoSelector, { label: tipo });
     }
 
     // Apply Anno (Year) if specified
     if (anno && anno !== 'all') {
       const annoSelector = 'select[id$="DataYearItem2"]';
+      console.log(`[Search API] Selecting year (anno): "${anno}"`);
       await page.selectOption(annoSelector, { value: String(anno) });
     }
 
-    // Fill search text and submit
+    console.log('[Search API] [Step 5/8] Filling search keywords...');
     await page.fill(searchInputSelector, keywords);
     
     const submitBtnSelector = 'button[id$="submitButton"]';
+    console.log('[Search API] [Step 6/8] Clicking submit button...');
     await page.click(submitBtnSelector);
 
-    // Wait for the results to update.
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(3000);
+    console.log('[Search API] [Step 7/8] Waiting for results to load (networkidle)...');
+    await page.waitForLoadState('networkidle', { timeout: 15000 });
+    await page.waitForTimeout(3000); // Wait extra 3s for rendering
 
-    // Scrape results
+    console.log('[Search API] [Step 8/8] Scraping results from the page DOM...');
     const results = await page.evaluate(() => {
       const cards = Array.from(document.querySelectorAll('.ricerca--item__footer'));
       return cards.map((card, index) => {
@@ -177,14 +199,18 @@ app.post('/api/search', async (req, res) => {
       }).filter(item => item.url !== '');
     });
 
-    console.log(`Successfully scraped ${results.length} results.`);
+    console.log(`[Search API] ✅ Success. Scraped ${results.length} results.`);
     res.json({ success: true, count: results.length, results });
 
   } catch (error) {
-    console.error('Error in search endpoint:', error);
-    res.status(500).json({ error: 'Errore durante la ricerca automatizzata delle sentenze.', details: error.stack || error.message });
+    console.error('[Search API] ❌ Critical Error during search operation:', error);
+    res.status(500).json({ 
+      error: 'Errore durante la ricerca automatizzata delle sentenze.', 
+      details: error.stack || error.message 
+    });
   } finally {
     if (browser) {
+      console.log('[Search API] Closing browser instance...');
       await browser.close();
     }
   }
@@ -198,10 +224,11 @@ app.post('/api/summarize', async (req, res) => {
   const { url } = req.body;
 
   if (!url) {
+    console.warn('[Summarize API] ⚠️ Rejected: Missing URL.');
     return res.status(400).json({ error: 'URL del provvedimento obbligatorio.' });
   }
 
-  console.log(`Requesting summary for URL: ${url}`);
+  console.log(`[Summarize API] 🚀 Requested summary for URL: ${url}`);
 
   let browser;
   try {
@@ -209,7 +236,7 @@ app.post('/api/summarize', async (req, res) => {
 
     // Check if the URL is a PDF
     if (url.toLowerCase().includes('.pdf')) {
-      console.log('URL is a PDF. Downloading and parsing...');
+      console.log('[Summarize API] [Step 1/3] URL detected as PDF. Fetching buffer...');
       const response = await fetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -218,38 +245,44 @@ app.post('/api/summarize', async (req, res) => {
       if (!response.ok) {
         throw new Error(`Failed to download PDF: ${response.statusText}`);
       }
+      console.log('[Summarize API] PDF buffer downloaded. Parsing content...');
       const buffer = Buffer.from(await response.arrayBuffer());
       const pdfData = await pdf(buffer);
       judgmentText = pdfData.text;
     } else {
+      console.log('[Summarize API] [Step 1/3] URL detected as HTML. Initializing browser...');
       browser = await getBrowser();
       const context = await browser.newContext({
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       });
       const page = await context.newPage();
 
+      console.log(`[Summarize API] Navigating to page: ${url}`);
       await page.goto(url, {
         waitUntil: 'domcontentloaded',
-        timeout: 20000
+        timeout: 25000
       });
 
-      await page.waitForSelector('body');
+      console.log('[Summarize API] Waiting for page body selector...');
+      await page.waitForSelector('body', { timeout: 15000 });
       await page.waitForTimeout(2000);
 
+      console.log('[Summarize API] Extracting body innerText...');
       judgmentText = await page.evaluate(() => {
         return document.body ? document.body.innerText : '';
       });
     }
 
     if (!judgmentText || judgmentText.trim().length < 200) {
+      console.warn(`[Summarize API] ⚠️ Extraction warning. Raw text was too short (${judgmentText?.length || 0} chars).`);
       return res.status(422).json({ error: 'Impossibile estrarre un testo sufficiente da questo provvedimento.' });
     }
 
-    console.log(`Extracted judgment text. Length: ${judgmentText.length} characters.`);
+    console.log(`[Summarize API] [Step 2/3] Text successfully extracted. Length: ${judgmentText.length} characters.`);
 
     // If Gemini key is missing, return fallback mock summary
     if (!aiClient) {
-      console.warn('Gemini client not initialized. Returning mock summary.');
+      console.warn('[Summarize API] ⚠️ GEMINI_API_KEY is missing. Returning pre-formatted explanation.');
       return res.json({
         success: true,
         summary: `### [MOCK] Riassunto del Provvedimento (Nessuna API Key configurata)\n        \nL'applicazione ha estratto correttamente il testo del provvedimento (${judgmentText.length} caratteri).\nConfigura la variabile d'ambiente \`GEMINI_API_KEY\` nel file \`backend/.env\` per attivare i riassunti intelligenti di Google Gemini.\n\n**Anteprima del testo estratto:**\n${judgmentText.substring(0, 500)}...`
@@ -258,33 +291,37 @@ app.post('/api/summarize', async (req, res) => {
 
     const prompt = `Sei un assistente legale esperto di diritto amministrativo italiano. Analizza il seguente testo di un provvedimento (sentenza/ordinanza/decreto/parere) della Giustizia Amministrativa italiana ed elabora un riassunto estremamente chiaro, sintetico e professionale strutturato in lingua italiana.\n\nStruttura il riassunto esattamente in questo formato Markdown:\n\n# Riassunto Sentenza: [Mettere il Numero del provvedimento / Anno e il TAR/Organo Decidente]\n\n## 1. Oggetto del Contendere\n[Spiega in 2-3 frasi qual è l'oggetto della causa, la materia e il provvedimento amministrativo impugnato]\n\n## 2. Decisione dell'Organo Giudicante\n[Indica chiaramente se il ricorso è stato accolto, respinto, dichiarato improcedibile o inammissibile e la formula decisionale principale]\n\n## 3. Motivazioni Principali della Decisione\n[Fornisci un elenco puntato dettagliato dei principali punti in fatto e in diritto che hanno portato il giudice a questa decisione]\n\n## 4. Punti Chiave e Massime da Ricordare\n[Sintetizza i principi di diritto espressi o le norme chiave interpretate nella decisione]\n\n---\nEcco il testo del provvedimento:\n${judgmentText}`;
 
-    console.log('Sending prompt to Gemini API...');
+    console.log('[Summarize API] [Step 3/3] Sending prompt to Google Gemini API...');
     const modelToUse = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
     let response;
     try {
-      console.log(`Attempting generation with model: ${modelToUse}`);
+      console.log(`[Summarize API] Attempting generation with model: ${modelToUse}`);
       response = await aiClient.models.generateContent({
         model: modelToUse,
         contents: prompt
       });
     } catch (apiErr) {
-      console.warn(`Primary model ${modelToUse} failed. Trying fallback model...`, apiErr.message);
+      console.warn(`[Summarize API] Primary model ${modelToUse} failed. Trying fallback model... Details:`, apiErr.message);
       const fallbackModel = modelToUse === 'gemini-2.0-flash' ? 'gemini-2.5-flash' : 'gemini-2.0-flash';
-      console.log(`Attempting generation with fallback model: ${fallbackModel}`);
+      console.log(`[Summarize API] Attempting generation with fallback model: ${fallbackModel}`);
       response = await aiClient.models.generateContent({
         model: fallbackModel,
         contents: prompt
       });
     }
 
-    console.log('Summary generated successfully.');
+    console.log('[Summarize API] ✅ Summary generated successfully.');
     res.json({ success: true, summary: response.text });
 
   } catch (error) {
-    console.error('Error in summarize endpoint:', error);
-    res.status(500).json({ error: 'Errore durante la generazione del riassunto tramite Gemini API.', details: error.stack || error.message });
+    console.error('[Summarize API] ❌ Critical Error during summarization operation:', error);
+    res.status(500).json({ 
+      error: 'Errore durante la generazione del riassunto tramite Gemini API.', 
+      details: error.stack || error.message 
+    });
   } finally {
     if (browser) {
+      console.log('[Summarize API] Closing browser instance...');
       await browser.close();
     }
   }

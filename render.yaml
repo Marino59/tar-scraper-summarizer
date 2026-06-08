@@ -3,7 +3,7 @@ services:
     name: tar-scraper-summarizer-backend
     runtime: node
     rootDir: backend
-    buildCommand: npm install && npx playwright install --with-deps chromium
+    buildCommand: npm install
     startCommand: node server.js
     envVars:
       - key: PORT
