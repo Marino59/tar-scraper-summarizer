@@ -172,7 +172,7 @@ function App() {
               onChange={(e) => setSede(e.target.value)}
             >
               {sediList.map(item => (
-                <option key={item.value} value={item.value}>{item.label}</option>
+                <option key={item.value} value={item.value} style={{ color: '#111827', backgroundColor: '#ffffff' }}>{item.label}</option>
               ))}
             </select>
           </div>
@@ -186,7 +186,7 @@ function App() {
               onChange={(e) => setTipo(e.target.value)}
             >
               {tipiList.map(item => (
-                <option key={item.value} value={item.value}>{item.label}</option>
+                <option key={item.value} value={item.value} style={{ color: '#111827', backgroundColor: '#ffffff' }}>{item.label}</option>
               ))}
             </select>
           </div>
@@ -200,7 +200,7 @@ function App() {
               onChange={(e) => setAnno(e.target.value)}
             >
               {anniList.map(year => (
-                <option key={year} value={year}>{year === 'all' ? 'Tutti gli Anni' : year}</option>
+                <option key={year} value={year} style={{ color: '#111827', backgroundColor: '#ffffff' }}>{year === 'all' ? 'Tutti gli Anni' : year}</option>
               ))}
             </select>
           </div>
