@@ -146,9 +146,25 @@ app.post('/api/search', async (req, res) => {
     const targetPage = parseInt(page, 10) || 1;
     while (currentPage < targetPage) {
       console.log(`[Search API] Navigating to next page (${currentPage + 1}/${targetPage})...`);
+      
+      // Check if the next button is wrapped in a disabled class (e.g. li.disabled)
+      const isDisabled = await pageObj.evaluate(() => {
+        const nextLink = Array.from(document.querySelectorAll('a'))
+          .find(el => el.innerText.includes('Successivo'));
+        if (!nextLink) return true;
+        const parentLi = nextLink.closest('li');
+        return parentLi ? parentLi.classList.contains('disabled') : false;
+      });
+
+      if (isDisabled) {
+        console.log('[Search API] "Successivo" button is disabled or not found. Stopping pagination.');
+        break;
+      }
+
       const nextButton = pageObj.locator('a.form-group.clickable', { hasText: 'Successivo' });
       if (await nextButton.count() > 0) {
-        await nextButton.first().click();
+        // Use force: true to click even if overlapped by floating headers
+        await nextButton.first().click({ force: true });
         await pageObj.waitForLoadState('networkidle', { timeout: 15000 });
         await pageObj.waitForTimeout(2000);
         currentPage++;
