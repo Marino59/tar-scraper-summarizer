@@ -1,3 +1,4 @@
+import './polyfill.js';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -7,14 +8,6 @@ import { createRequire } from 'module';
 import { PDFParse } from 'pdf-parse';
 
 const require = createRequire(import.meta.url);
-
-// Polyfill process.getBuiltinModule for Node.js versions older than 20.16.0
-if (typeof process.getBuiltinModule !== 'function') {
-  process.getBuiltinModule = function(id) {
-    const cleanId = id.startsWith('node:') ? id.substring(5) : id;
-    return require(cleanId);
-  };
-}
 
 dotenv.config();
 
