@@ -70,7 +70,7 @@ async function getBrowser() {
  * Body: { keywords, sede, tipo, anno }
  */
 app.post('/api/search', async (req, res) => {
-  const { keywords, sede, tipo, anno, page = 1, pageSize = 20 } = req.body;
+  const { keywords, sede, tipo, anno, page = 1, pageSize = 60 } = req.body;
   
   if (!keywords) {
     console.warn('[Search API] ⚠️ Rejected: Missing keywords.');

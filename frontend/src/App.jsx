@@ -14,7 +14,7 @@ function App() {
   const [searched, setSearched] = useState(false);
   const [page, setPage] = useState(1);
   const [totalResults, setTotalResults] = useState(0);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(60);
   
   const [selectedSummary, setSelectedSummary] = useState(null);
   const [selectedJudgments, setSelectedJudgments] = useState({});
@@ -343,19 +343,6 @@ function App() {
             </select>
           </div>
 
-          <div className="form-group">
-            <label className="form-label" htmlFor="pageSizeSelect">Risultati per pagina</label>
-            <select
-              id="pageSizeSelect"
-              className="form-select"
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-            >
-              <option value="20" style={{ color: '#111827', backgroundColor: '#ffffff' }}>20 sentenze</option>
-              <option value="40" style={{ color: '#111827', backgroundColor: '#ffffff' }}>40 sentenze</option>
-              <option value="60" style={{ color: '#111827', backgroundColor: '#ffffff' }}>60 sentenze</option>
-            </select>
-          </div>
 
           <button type="submit" className="btn-search" disabled={loadingSearch}>
             {loadingSearch ? (
@@ -535,7 +522,7 @@ function App() {
         )}
 
         {/* Controlli Paginazione */}
-        {!loadingSearch && results.length > 0 && totalResults > 20 && (
+        {!loadingSearch && results.length > 0 && totalResults > pageSize && (
           <div className="pagination-controls" style={{
             display: 'flex',
             justifyContent: 'center',
