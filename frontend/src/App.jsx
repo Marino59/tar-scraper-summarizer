@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 function App() {
   const [keywords, setKeywords] = useState('');
@@ -55,6 +55,10 @@ function App() {
   const triggerAutoSummaries = async (items) => {
     const firstFive = items.slice(0, 5);
     for (const item of firstFive) {
+      // Add a 3-second delay between requests to respect Gemini free-tier rate limits
+      if (item !== firstFive[0]) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
       setLoadingAutoSummaries(prev => ({ ...prev, [item.id]: true }));
       try {
         const response = await fetch(`${API_URL}/api/summarize`, {
