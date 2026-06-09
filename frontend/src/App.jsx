@@ -16,6 +16,8 @@ function App() {
   const [totalResults, setTotalResults] = useState(0);
   
   const [selectedSummary, setSelectedSummary] = useState(null);
+  const [selectedJudgments, setSelectedJudgments] = useState({});
+  const [loadingExport, setLoadingExport] = useState(false);
   const [selectedJudgment, setSelectedJudgment] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [error, setError] = useState(null);
@@ -92,6 +94,7 @@ function App() {
     setAutoSummaries({});
     setLoadingAutoSummaries({});
     setPage(pageToFetch);
+    setSelectedJudgments({}); // Reset selection on new search
 
     try {
       const response = await fetch(`${API_URL}/api/search`, {
@@ -122,6 +125,97 @@ function App() {
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     executeSearch(1);
+  };
+
+  const toggleSelect = (judgment) => {
+    setSelectedJudgments(prev => {
+      const next = { ...prev };
+      if (next[judgment.id]) {
+        delete next[judgment.id];
+      } else {
+        // Enforce safety limit on selection
+        if (Object.keys(prev).length >= 50) {
+          alert("Attenzione: puoi selezionare al massimo 50 sentenze alla volta per evitare sovraccarichi o blocchi del portale.");
+          return prev;
+        }
+        next[judgment.id] = judgment;
+      }
+      return next;
+    });
+  };
+
+  const isAllSelected = results.length > 0 && results.every(item => selectedJudgments[item.id]);
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedJudgments(prev => {
+        const next = { ...prev };
+        results.forEach(item => {
+          delete next[item.id];
+        });
+        return next;
+      });
+    } else {
+      setSelectedJudgments(prev => {
+        const next = { ...prev };
+        let count = Object.keys(prev).length;
+        for (const item of results) {
+          if (!next[item.id]) {
+            if (count >= 50) {
+              alert("Attenzione: è stato raggiunto il limite massimo di 50 sentenze selezionabili contemporaneamente.");
+              break;
+            }
+            next[item.id] = item;
+            count++;
+          }
+        }
+        return next;
+      });
+    }
+  };
+
+  const handleExportSelected = async () => {
+    const selectedList = Object.values(selectedJudgments);
+    if (selectedList.length === 0) return;
+
+    if (selectedList.length > 50) {
+      alert(`Attenzione: puoi esportare al massimo 50 sentenze alla volta. Attualmente ne hai selezionate ${selectedList.length}. Deseleziona alcune sentenze prima di procedere.`);
+      return;
+    }
+
+    setLoadingExport(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_URL}/api/export`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ judgments: selectedList })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Errore durante la generazione dell\'esportazione.');
+      }
+
+      const blob = new Blob([data.text], { type: 'text/plain;charset=utf-8' });
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `sentenze_unificate_${new Date().toISOString().slice(0, 10)}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(downloadUrl);
+
+    } catch (err) {
+      console.error(err);
+      setError(err.message);
+    } finally {
+      setLoadingExport(false);
+    }
   };
 
   const handleSummarize = async (judgment, format = 'detailed') => {
@@ -286,11 +380,70 @@ function App() {
           </div>
         )}
 
+        {/* Selection Bulk Actions Bar */}
+        {!loadingSearch && results.length > 0 && (
+          <div className="bulk-actions-bar" style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '1rem',
+            marginBottom: '1rem',
+            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid rgba(255, 255, 255, 0.05)'
+          }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+              <input
+                type="checkbox"
+                checked={isAllSelected}
+                onChange={toggleSelectAll}
+                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              />
+              Seleziona tutte le sentenze della pagina ({results.length})
+            </label>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <span style={{ fontSize: '0.9rem', color: 'var(--color-muted)' }}>
+                Selezionate: <strong style={{ color: 'var(--color-accent)' }}>{Object.keys(selectedJudgments).length}</strong> / 50 max
+              </span>
+              
+              <button
+                onClick={handleExportSelected}
+                disabled={Object.keys(selectedJudgments).length === 0 || loadingExport}
+                className="btn-action btn-action-primary"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: '0.5rem 1rem',
+                  opacity: (Object.keys(selectedJudgments).length === 0 || loadingExport) ? 0.5 : 1,
+                  cursor: (Object.keys(selectedJudgments).length === 0 || loadingExport) ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {loadingExport ? 'Esportazione in corso...' : 'Scarica Testo Unificato (.txt)'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Results List */}
         {!loadingSearch && results.length > 0 && (
           <div className="results-list">
             {results.map((item) => (
-              <article key={item.id} className="judgment-card">
+              <article key={item.id} className="judgment-card" style={{ position: 'relative', paddingLeft: '3.5rem' }}>
+                <input
+                  type="checkbox"
+                  checked={!!selectedJudgments[item.id]}
+                  onChange={() => toggleSelect(item)}
+                  style={{
+                    position: 'absolute',
+                    left: '1.2rem',
+                    top: '1.5rem',
+                    width: '18px',
+                    height: '18px',
+                    cursor: 'pointer'
+                  }}
+                />
                 <div className="card-top">
                   <div className="tag-container">
                     <span className="badge badge-tipo">{item.tipo || 'Provvedimento'}</span>

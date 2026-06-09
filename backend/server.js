@@ -231,6 +231,108 @@ app.post('/api/search', async (req, res) => {
 });
 
 /**
+ * POST /api/export
+ * Body: { judgments }
+ */
+app.post('/api/export', async (req, res) => {
+  const { judgments } = req.body;
+  
+  if (!judgments || !Array.isArray(judgments)) {
+    return res.status(400).json({ error: 'Nessun provvedimento fornito per l\'esportazione.' });
+  }
+
+  // Safety check on maximum judgments to export
+  if (judgments.length > 50) {
+    return res.status(400).json({ 
+      error: `Puoi esportare al massimo 50 sentenze alla volta. Hai selezionato ${judgments.length} sentenze.` 
+    });
+  }
+
+  console.log(`[Export API] Starting export of ${judgments.length} judgments...`);
+  
+  let combinedText = `ESPORTAZIONE PROVVEDIMENTI GIUSTIZIA AMMINISTRATIVA\n`;
+  combinedText += `Generato il: ${new Date().toLocaleString('it-IT')}\n`;
+  combinedText += `Totale provvedimenti: ${judgments.length}\n`;
+  combinedText += `======================================================================\n\n`;
+
+  let browser;
+  try {
+    browser = await getBrowser();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const page = await context.newPage();
+
+    for (let i = 0; i < judgments.length; i++) {
+      const item = judgments[i];
+      console.log(`[Export API] (${i + 1}/${judgments.length}) Scraping: ${item.tipo} - ${item.sede} - N. ${item.numeroProvv}`);
+      
+      let judgmentText = '';
+      if (item.url) {
+        try {
+          if (item.url.toLowerCase().includes('.pdf')) {
+            const response = await fetch(item.url, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+              }
+            });
+            if (response.ok) {
+              const buffer = Buffer.from(await response.arrayBuffer());
+              const parser = new PDFParse({ data: buffer });
+              const pdfData = await parser.getText();
+              judgmentText = pdfData.text;
+            } else {
+              judgmentText = `[Errore caricamento PDF: HTTP ${response.status}]`;
+            }
+          } else {
+            await page.goto(item.url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+            await page.waitForSelector('body', { timeout: 15000 });
+            await page.waitForTimeout(1500);
+            judgmentText = await page.evaluate(() => document.body ? document.body.innerText : '');
+          }
+        } catch (err) {
+          console.error(`[Export API] Error fetching ${item.url}:`, err.message);
+          judgmentText = `[Errore caricamento testo: ${err.message}]`;
+        }
+      } else {
+        judgmentText = '[URL non disponibile]';
+      }
+
+      combinedText += `=== PROVVEDIMENTO ${i + 1} di ${judgments.length} ===\n`;
+      combinedText += `TIPO: ${item.tipo || 'N/A'}\n`;
+      combinedText += `SEDE: ${item.sede || 'N/A'}\n`;
+      combinedText += `NUMERO: ${item.numeroProvv || 'N/A'}\n`;
+      combinedText += `SEZIONE: ${item.sezione || 'N/A'}\n`;
+      combinedText += `RICORSO: ${item.ricorso || 'N/A'}\n`;
+      combinedText += `ECLI: ${item.ecli || 'N/A'}\n`;
+      combinedText += `URL: ${item.url || 'N/A'}\n`;
+      combinedText += `----------------------------------------------------------------------\n`;
+      combinedText += `${judgmentText}\n`;
+      combinedText += `======================================================================\n\n`;
+
+      // Throttle to prevent DDOS protection triggers on the court website
+      if (i < judgments.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
+    }
+
+    res.json({ success: true, text: combinedText });
+
+  } catch (error) {
+    console.error('[Export API] ❌ Critical error during export:', error);
+    res.status(500).json({ 
+      error: 'Errore interno durante la generazione del file di testo unificato.', 
+      details: error.message 
+    });
+  } finally {
+    if (browser) {
+      console.log('[Export API] Closing browser...');
+      await browser.close();
+    }
+  }
+});
+
+/**
  * POST /api/summarize
  * Body: { url }
  */
