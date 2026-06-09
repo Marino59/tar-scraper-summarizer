@@ -14,6 +14,7 @@ function App() {
   const [searched, setSearched] = useState(false);
   const [page, setPage] = useState(1);
   const [totalResults, setTotalResults] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   
   const [selectedSummary, setSelectedSummary] = useState(null);
   const [selectedJudgments, setSelectedJudgments] = useState({});
@@ -84,7 +85,7 @@ function App() {
     }
   };
 
-  const executeSearch = async (pageToFetch = 1) => {
+  const executeSearch = async (pageToFetch = 1, sizeToFetch = pageSize) => {
     if (!keywords.trim()) return;
 
     setLoadingSearch(true);
@@ -102,7 +103,7 @@ function App() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ keywords, sede, tipo, anno, page: pageToFetch })
+        body: JSON.stringify({ keywords, sede, tipo, anno, page: pageToFetch, pageSize: sizeToFetch })
       });
 
       const data = await response.json();
@@ -124,7 +125,7 @@ function App() {
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
-    executeSearch(1);
+    executeSearch(1, pageSize);
   };
 
   const toggleSelect = (judgment) => {
@@ -133,9 +134,9 @@ function App() {
       if (next[judgment.id]) {
         delete next[judgment.id];
       } else {
-        // Enforce safety limit on selection
-        if (Object.keys(prev).length >= 50) {
-          alert("Attenzione: puoi selezionare al massimo 50 sentenze alla volta per evitare sovraccarichi o blocchi del portale.");
+        // Enforce safety limit on selection - updated to 60
+        if (Object.keys(prev).length >= 60) {
+          alert("Attenzione: puoi selezionare al massimo 60 sentenze alla volta per evitare sovraccarichi o blocchi del portale.");
           return prev;
         }
         next[judgment.id] = judgment;
@@ -161,8 +162,8 @@ function App() {
         let count = Object.keys(prev).length;
         for (const item of results) {
           if (!next[item.id]) {
-            if (count >= 50) {
-              alert("Attenzione: è stato raggiunto il limite massimo di 50 sentenze selezionabili contemporaneamente.");
+            if (count >= 60) {
+              alert("Attenzione: è stato raggiunto il limite massimo di 60 sentenze selezionabili contemporaneamente.");
               break;
             }
             next[item.id] = item;
@@ -178,8 +179,8 @@ function App() {
     const selectedList = Object.values(selectedJudgments);
     if (selectedList.length === 0) return;
 
-    if (selectedList.length > 50) {
-      alert(`Attenzione: puoi esportare al massimo 50 sentenze alla volta. Attualmente ne hai selezionate ${selectedList.length}. Deseleziona alcune sentenze prima di procedere.`);
+    if (selectedList.length > 60) {
+      alert(`Attenzione: puoi esportare al massimo 60 sentenze alla volta. Attualmente ne hai selezionate ${selectedList.length}. Deseleziona alcune sentenze prima di procedere.`);
       return;
     }
 
@@ -342,6 +343,20 @@ function App() {
             </select>
           </div>
 
+          <div className="form-group">
+            <label className="form-label" htmlFor="pageSizeSelect">Risultati per pagina</label>
+            <select
+              id="pageSizeSelect"
+              className="form-select"
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+            >
+              <option value="20" style={{ color: '#111827', backgroundColor: '#ffffff' }}>20 sentenze</option>
+              <option value="40" style={{ color: '#111827', backgroundColor: '#ffffff' }}>40 sentenze</option>
+              <option value="60" style={{ color: '#111827', backgroundColor: '#ffffff' }}>60 sentenze</option>
+            </select>
+          </div>
+
           <button type="submit" className="btn-search" disabled={loadingSearch}>
             {loadingSearch ? (
               <>
@@ -404,7 +419,7 @@ function App() {
             
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
               <span style={{ fontSize: '0.9rem', color: 'var(--color-muted)' }}>
-                Selezionate: <strong style={{ color: 'var(--color-accent)' }}>{Object.keys(selectedJudgments).length}</strong> / 50 max
+                Selezionate: <strong style={{ color: 'var(--color-accent)' }}>{Object.keys(selectedJudgments).length}</strong> / 60 max
               </span>
               
               <button
@@ -547,18 +562,18 @@ function App() {
             
             <span style={{ fontSize: '0.9rem', color: 'var(--color-muted)' }}>
               Pagina <strong style={{ color: 'var(--color-text)' }}>{page}</strong> di{' '}
-              <strong style={{ color: 'var(--color-text)' }}>{Math.ceil(totalResults / 20)}</strong>{' '}
+              <strong style={{ color: 'var(--color-text)' }}>{Math.ceil(totalResults / pageSize)}</strong>{' '}
               ({totalResults} risultati)
             </span>
             
             <button
               onClick={() => executeSearch(page + 1)}
-              disabled={page >= Math.ceil(totalResults / 20)}
+              disabled={page >= Math.ceil(totalResults / pageSize)}
               className="btn-action"
               style={{
                 padding: '0.5rem 1rem',
-                cursor: page >= Math.ceil(totalResults / 20) ? 'not-allowed' : 'pointer',
-                opacity: page >= Math.ceil(totalResults / 20) ? 0.5 : 1
+                cursor: page >= Math.ceil(totalResults / pageSize) ? 'not-allowed' : 'pointer',
+                opacity: page >= Math.ceil(totalResults / pageSize) ? 0.5 : 1
               }}
             >
               Successiva &rarr;

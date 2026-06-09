@@ -70,14 +70,14 @@ async function getBrowser() {
  * Body: { keywords, sede, tipo, anno }
  */
 app.post('/api/search', async (req, res) => {
-  const { keywords, sede, tipo, anno, page = 1 } = req.body;
+  const { keywords, sede, tipo, anno, page = 1, pageSize = 20 } = req.body;
   
   if (!keywords) {
     console.warn('[Search API] ⚠️ Rejected: Missing keywords.');
     return res.status(400).json({ error: 'Parole chiave di ricerca obbligatorie (keywords).' });
   }
 
-  console.log(`[Search API] 🚀 Starting search. Keywords: "${keywords}", Sede: "${sede}", Tipo: "${tipo}", Anno: "${anno}", Page: ${page}`);
+  console.log(`[Search API] 🚀 Starting search. Keywords: "${keywords}", Sede: "${sede}", Tipo: "${tipo}", Anno: "${anno}", Page: ${page}, PageSize: ${pageSize}`);
 
   let browser;
   try {
@@ -100,6 +100,13 @@ app.post('/api/search', async (req, res) => {
     const searchInputSelector = 'input[id$="searchtextProvvedimenti"]';
     console.log('[Search API] [Step 4/8] Waiting for search text field...');
     await pageObj.waitForSelector(searchInputSelector, { timeout: 15000 });
+
+    // Apply Page Size (Results per page)
+    const pageSizeSelector = 'select[id$="pageSize"]';
+    if (await pageObj.locator(pageSizeSelector).count() > 0) {
+      console.log(`[Search API] Selecting page size option: "${pageSize}"`);
+      await pageObj.selectOption(pageSizeSelector, { value: String(pageSize) });
+    }
 
     // Apply Sede (Court) if specified
     if (sede && sede !== 'all') {
@@ -260,10 +267,10 @@ app.post('/api/export', async (req, res) => {
     return res.status(400).json({ error: 'Nessun provvedimento fornito per l\'esportazione.' });
   }
 
-  // Safety check on maximum judgments to export
-  if (judgments.length > 50) {
+  // Safety check on maximum judgments to export - updated to 60
+  if (judgments.length > 60) {
     return res.status(400).json({ 
-      error: `Puoi esportare al massimo 50 sentenze alla volta. Hai selezionato ${judgments.length} sentenze.` 
+      error: `Puoi esportare al massimo 60 sentenze alla volta. Hai selezionato ${judgments.length} sentenze.` 
     });
   }
 
