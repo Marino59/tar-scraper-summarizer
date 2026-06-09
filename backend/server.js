@@ -163,9 +163,12 @@ app.post('/api/search', async (req, res) => {
 
       const nextButton = pageObj.locator('a.form-group.clickable', { hasText: 'Successivo' });
       if (await nextButton.count() > 0) {
-        // Use force: true to click even if overlapped by floating headers
-        await nextButton.first().click({ force: true });
-        await pageObj.waitForLoadState('networkidle', { timeout: 15000 });
+        // Wait for the navigation to complete when clicking the link
+        console.log('[Search API] Clicking Successivo and waiting for navigation...');
+        await Promise.all([
+          pageObj.waitForNavigation({ waitUntil: 'networkidle', timeout: 25000 }).catch(err => console.log('[Search API] Navigation timeout, proceeding...')),
+          nextButton.first().click({ force: true })
+        ]);
         await pageObj.waitForTimeout(2000);
         currentPage++;
       } else {
