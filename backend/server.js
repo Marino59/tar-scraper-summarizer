@@ -70,14 +70,14 @@ async function getBrowser() {
  * Body: { keywords, sede, tipo, anno }
  */
 app.post('/api/search', async (req, res) => {
-  const { keywords, sede, tipo, anno } = req.body;
+  const { keywords, sede, tipo, anno, page = 1 } = req.body;
   
   if (!keywords) {
     console.warn('[Search API] ⚠️ Rejected: Missing keywords.');
     return res.status(400).json({ error: 'Parole chiave di ricerca obbligatorie (keywords).' });
   }
 
-  console.log(`[Search API] 🚀 Starting search. Keywords: "${keywords}", Sede: "${sede}", Tipo: "${tipo}", Anno: "${anno}"`);
+  console.log(`[Search API] 🚀 Starting search. Keywords: "${keywords}", Sede: "${sede}", Tipo: "${tipo}", Anno: "${anno}", Page: ${page}`);
 
   let browser;
   try {
@@ -88,10 +88,10 @@ app.post('/api/search', async (req, res) => {
     const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     });
-    const page = await context.newPage();
+    const pageObj = await context.newPage();
 
     console.log('[Search API] [Step 3/8] Navigating to search portal...');
-    await page.goto('https://www.giustizia-amministrativa.it/web/guest/dcsnprr', {
+    await pageObj.goto('https://www.giustizia-amministrativa.it/web/guest/dcsnprr', {
       waitUntil: 'domcontentloaded',
       timeout: 25000
     });
@@ -99,42 +99,67 @@ app.post('/api/search', async (req, res) => {
 
     const searchInputSelector = 'input[id$="searchtextProvvedimenti"]';
     console.log('[Search API] [Step 4/8] Waiting for search text field...');
-    await page.waitForSelector(searchInputSelector, { timeout: 15000 });
+    await pageObj.waitForSelector(searchInputSelector, { timeout: 15000 });
 
     // Apply Sede (Court) if specified
     if (sede && sede !== 'all') {
       const sedeSelector = 'select[id$="sedeProvvedimenti"]';
       console.log(`[Search API] Selecting court (sede): "${sede}"`);
-      await page.selectOption(sedeSelector, { label: sede });
+      await pageObj.selectOption(sedeSelector, { label: sede });
     }
 
     // Apply Tipo (Type) if specified
     if (tipo && tipo !== 'all') {
       const tipoSelector = 'select[id$="TipoProvvedimentoItem"]';
       console.log(`[Search API] Selecting type (tipo): "${tipo}"`);
-      await page.selectOption(tipoSelector, { label: tipo });
+      await pageObj.selectOption(tipoSelector, { label: tipo });
     }
 
     // Apply Anno (Year) if specified
     if (anno && anno !== 'all') {
       const annoSelector = 'select[id$="DataYearItem2"]';
       console.log(`[Search API] Selecting year (anno): "${anno}"`);
-      await page.selectOption(annoSelector, { value: String(anno) });
+      await pageObj.selectOption(annoSelector, { value: String(anno) });
     }
 
     console.log('[Search API] [Step 5/8] Filling search keywords...');
-    await page.fill(searchInputSelector, keywords);
+    await pageObj.fill(searchInputSelector, keywords);
     
     const submitBtnSelector = 'button[id$="submitButton"]';
     console.log('[Search API] [Step 6/8] Clicking submit button...');
-    await page.click(submitBtnSelector);
+    await pageObj.click(submitBtnSelector);
 
     console.log('[Search API] [Step 7/8] Waiting for results to load (networkidle)...');
-    await page.waitForLoadState('networkidle', { timeout: 15000 });
-    await page.waitForTimeout(3000); // Wait extra 3s for rendering
+    await pageObj.waitForLoadState('networkidle', { timeout: 15000 });
+    await pageObj.waitForTimeout(3000); // Wait extra 3s for rendering
+
+    // Extract total results count
+    const totalResultsText = await pageObj.evaluate(() => {
+      return document.body.innerText.match(/Trovati \d+ risultati/i)?.[0] || '';
+    });
+    const totalResultsMatch = totalResultsText.match(/\d+/);
+    const totalResults = totalResultsMatch ? parseInt(totalResultsMatch[0], 10) : 0;
+    console.log(`[Search API] Total results found: ${totalResults}`);
+
+    // Paginate to the requested page
+    let currentPage = 1;
+    const targetPage = parseInt(page, 10) || 1;
+    while (currentPage < targetPage) {
+      console.log(`[Search API] Navigating to next page (${currentPage + 1}/${targetPage})...`);
+      const nextButton = pageObj.locator('a.form-group.clickable', { hasText: 'Successivo' });
+      if (await nextButton.count() > 0) {
+        await nextButton.first().click();
+        await pageObj.waitForLoadState('networkidle', { timeout: 15000 });
+        await pageObj.waitForTimeout(2000);
+        currentPage++;
+      } else {
+        console.log('[Search API] "Successivo" button not found. Stopping pagination.');
+        break;
+      }
+    }
 
     console.log('[Search API] [Step 8/8] Scraping results from the page DOM...');
-    const results = await page.evaluate(() => {
+    const results = await pageObj.evaluate(() => {
       const cards = Array.from(document.querySelectorAll('.ricerca--item__footer'));
       return cards.map((card, index) => {
         const textLines = Array.from(card.querySelectorAll('.col-sm-12'));
@@ -189,7 +214,7 @@ app.post('/api/search', async (req, res) => {
     });
 
     console.log(`[Search API] ✅ Success. Scraped ${results.length} results.`);
-    res.json({ success: true, count: results.length, results });
+    res.json({ success: true, count: results.length, totalResults, results });
 
   } catch (error) {
     console.error('[Search API] ❌ Critical Error during search operation:', error);

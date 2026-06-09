@@ -12,6 +12,8 @@ function App() {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [results, setResults] = useState([]);
   const [searched, setSearched] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalResults, setTotalResults] = useState(0);
   
   const [selectedSummary, setSelectedSummary] = useState(null);
   const [selectedJudgment, setSelectedJudgment] = useState(null);
@@ -80,8 +82,7 @@ function App() {
     }
   };
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
+  const executeSearch = async (pageToFetch = 1) => {
     if (!keywords.trim()) return;
 
     setLoadingSearch(true);
@@ -90,6 +91,7 @@ function App() {
     setResults([]);
     setAutoSummaries({});
     setLoadingAutoSummaries({});
+    setPage(pageToFetch);
 
     try {
       const response = await fetch(`${API_URL}/api/search`, {
@@ -97,7 +99,7 @@ function App() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ keywords, sede, tipo, anno })
+        body: JSON.stringify({ keywords, sede, tipo, anno, page: pageToFetch })
       });
 
       const data = await response.json();
@@ -106,6 +108,7 @@ function App() {
       }
 
       setResults(data.results || []);
+      setTotalResults(data.totalResults || 0);
       // Avvia la generazione automatica delle sintesi veloci per i primi 5 risultati
       triggerAutoSummaries(data.results || []);
     } catch (err) {
@@ -114,6 +117,11 @@ function App() {
     } finally {
       setLoadingSearch(false);
     }
+  };
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    executeSearch(1);
   };
 
   const handleSummarize = async (judgment, format = 'detailed') => {
@@ -184,7 +192,7 @@ function App() {
         </div>
         <div className="brand-subtitle">Ricerca Sentenze TAR</div>
 
-        <form onSubmit={handleSearch} className="search-form">
+        <form onSubmit={handleSearchSubmit} className="search-form">
           <div className="form-group">
             <label className="form-label" htmlFor="keywords">Parole chiave</label>
             <input
@@ -355,6 +363,53 @@ function App() {
                 </div>
               </article>
             ))}
+          </div>
+        )}
+
+        {/* Controlli Paginazione */}
+        {!loadingSearch && results.length > 0 && totalResults > 20 && (
+          <div className="pagination-controls" style={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '1.5rem',
+            marginTop: '2rem',
+            padding: '1rem',
+            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid rgba(255, 255, 255, 0.05)'
+          }}>
+            <button
+              onClick={() => executeSearch(page - 1)}
+              disabled={page <= 1}
+              className="btn-action"
+              style={{
+                padding: '0.5rem 1rem',
+                cursor: page <= 1 ? 'not-allowed' : 'pointer',
+                opacity: page <= 1 ? 0.5 : 1
+              }}
+            >
+              &larr; Precedente
+            </button>
+            
+            <span style={{ fontSize: '0.9rem', color: 'var(--color-muted)' }}>
+              Pagina <strong style={{ color: 'var(--color-text)' }}>{page}</strong> di{' '}
+              <strong style={{ color: 'var(--color-text)' }}>{Math.ceil(totalResults / 20)}</strong>{' '}
+              ({totalResults} risultati)
+            </span>
+            
+            <button
+              onClick={() => executeSearch(page + 1)}
+              disabled={page >= Math.ceil(totalResults / 20)}
+              className="btn-action"
+              style={{
+                padding: '0.5rem 1rem',
+                cursor: page >= Math.ceil(totalResults / 20) ? 'not-allowed' : 'pointer',
+                opacity: page >= Math.ceil(totalResults / 20) ? 0.5 : 1
+              }}
+            >
+              Successiva &rarr;
+            </button>
           </div>
         )}
 
