@@ -2,20 +2,166 @@ import React, { useState } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
-function App() {
-  const [keywords, setKeywords] = useState('');
-  const [sede, setSede] = useState('all');
-  const [tipo, setTipo] = useState('all');
-  const [anno, setAnno] = useState('all');
+const DATA = {
+  giurisdizione: {
+    l1Label: "Materia / plesso",
+    options: {
+      amministrativa: {
+        label: "Amministrativa",
+        gradi: {
+          tar: {
+            label: "Primo grado",
+            sub: "T.A.R.",
+            luoghi: ["TAR Veneto", "TAR Lazio", "TAR Lombardia", "TAR Trentino-A.A.", "TAR Emilia-Romagna", "Tutti i T.A.R."]
+          },
+          cds: {
+            label: "Appello",
+            sub: "Consiglio di Stato",
+            luoghi: ["Roma — sede unica (Sez. I–VII)", "Adunanza plenaria"]
+          },
+          consultiva: {
+            label: "Consultiva",
+            sub: "Pareri CdS",
+            luoghi: ["Roma — Sez. consultive"]
+          }
+        }
+      },
+      ordinaria: {
+        label: "Ordinaria",
+        gradi: {
+          trib: {
+            label: "Primo grado",
+            sub: "Tribunale",
+            luoghi: ["Vicenza", "Verona", "Venezia", "Padova", "Treviso", "Rovereto", "Tutti i Tribunali"]
+          },
+          app: {
+            label: "Appello",
+            sub: "Corte d'Appello",
+            luoghi: ["Venezia", "Trento", "Brescia", "Milano", "Tutte le Corti d'Appello"]
+          },
+          cass: {
+            label: "Legittimità",
+            sub: "Cassazione",
+            luoghi: ["Roma — Sez. civili", "Roma — Sezioni Unite"]
+          }
+        }
+      },
+      contabile: {
+        label: "Contabile",
+        gradi: {
+          giurReg: {
+            label: "Giurisdizionale reg.",
+            sub: "Corte dei Conti",
+            luoghi: ["Sez. Veneto", "Sez. Trentino-A.A.", "Sez. Lombardia", "Tutte le Sezioni regionali"]
+          },
+          giurApp: {
+            label: "Giurisdizionale app.",
+            sub: "Sez. centrali",
+            luoghi: ["Roma — Sez. app.", "Sezioni Riunite"]
+          },
+          controllo: {
+            label: "Controllo",
+            sub: "Sez. di controllo",
+            luoghi: ["Sez. Veneto", "Sez. Riunite controllo", "Tutte le Sezioni"]
+          }
+        }
+      },
+      costituzionale: {
+        label: "Costituzionale",
+        gradi: {
+          unico: {
+            label: "Giudizio cost.",
+            sub: "Corte Cost.",
+            luoghi: ["Roma — sede unica"]
+          }
+        }
+      },
+      tributaria: {
+        label: "Tributaria",
+        gradi: {
+          primo: {
+            label: "Primo grado",
+            sub: "C.G.T. I grado",
+            luoghi: ["Vicenza", "Verona", "Padova", "Tutte le sedi"]
+          },
+          secondo: {
+            label: "Secondo grado",
+            sub: "C.G.T. II grado",
+            luoghi: ["Veneto", "Tutte le sedi"]
+          },
+          legitt: {
+            label: "Legittimità",
+            sub: "Cassazione trib.",
+            luoghi: ["Roma — Sez. tributaria"]
+          }
+        }
+      }
+    }
+  },
+  autorita: {
+    l1Label: "Autorità",
+    options: {
+      anac: { label: "ANAC", tipi: ["Delibere", "Pareri (precontenzioso)", "Atti di regolazione", "Provv. sanzionatori"] },
+      agcm: { label: "AGCM", sub: "Antitrust", tipi: ["Provvedimenti", "Bollettino", "Segnalazioni AS"] },
+      agcom: { label: "AGCOM", tipi: ["Delibere", "Provvedimenti"] },
+      garante: { label: "Garante Privacy", tipi: ["Provvedimenti", "Pareri", "Provv. sanzionatori"] },
+      arera: { label: "ARERA", tipi: ["Delibere", "Documenti per la consultazione"] },
+      consob: { label: "CONSOB", tipi: ["Delibere", "Comunicazioni"] }
+    }
+  }
+};
 
+const ROUTE = {
+  amministrativa: "giustizia-amministrativa.it",
+  contabile: "banchedati.corteconti.it",
+  costituzionale: "cortecostituzionale.it",
+  ordinaria: "fonte autenticata — verifica accesso",
+  tributaria: "def.finanze.it",
+  anac: "anticorruzione.it / open-data",
+  agcm: "agcm.it",
+  agcom: "agcom.it",
+  garante: "garanteprivacy.it",
+  arera: "arera.it",
+  consob: "consob.it"
+};
+
+const SOURCES = [
+  { k: "tar", fam: "Giurisdizione", label: "T.A.R.", sub: "Amministrativa · I grado", open: true, route: "giustizia-amministrativa.it" },
+  { k: "cds", fam: "Giurisdizione", label: "Consiglio di Stato", sub: "Appello · Pareri", open: true, route: "giustizia-amministrativa.it" },
+  { k: "conti", fam: "Giurisdizione", label: "Corte dei Conti", sub: "Giurisdizione · Controllo", open: true, route: "banchedati.corteconti.it" },
+  { k: "cost", fam: "Giurisdizione", label: "Corte Costituzionale", sub: "Legittimità costituzionale", open: true, route: "cortecostituzionale.it" },
+  { k: "cgt", fam: "Giurisdizione", label: "Giustizia Tributaria", sub: "C.G.T. I/II grado", open: true, route: "def.finanze.it" },
+  { k: "cass", fam: "Giurisdizione", label: "Cassazione", sub: "Ordinaria · Legittimità", open: false, route: "ItalGiure — autenticato" },
+  { k: "merito", fam: "Giurisdizione", label: "Merito civile", sub: "Tribunali · Corti d'Appello", open: false, route: "BDP — divieto tratt. autom." },
+  { k: "anac", fam: "Autorità indipendenti", label: "ANAC", sub: "Delibere · Pareri", open: true, route: "anticorruzione.it" },
+  { k: "agcm", fam: "Autorità indipendenti", label: "AGCM", sub: "Antitrust", open: true, route: "agcm.it" },
+  { k: "agcom", fam: "Autorità indipendenti", label: "AGCOM", sub: "Delibere", open: true, route: "agcom.it" },
+  { k: "garante", fam: "Autorità indipendenti", label: "Garante Privacy", sub: "Provvedimenti", open: true, route: "garanteprivacy.it" },
+  { k: "arera", fam: "Autorità indipendenti", label: "ARERA", sub: "Delibere", open: true, route: "arera.it" },
+  { k: "consob", fam: "Autorità indipendenti", label: "CONSOB", sub: "Delibere · Comunicazioni", open: true, route: "consob.it" }
+];
+
+function App() {
+  // Search engine state
+  const [mode, setMode] = useState('guidata'); // 'guidata' | 'global'
+  const [macro, setMacro] = useState(null); // 'giurisdizione' | 'autorita'
+  const [l1, setL1] = useState(null);
+  const [l2, setL2] = useState(null);
+  const [l3, setL3] = useState(null);
+  const [globalSources, setGlobalSources] = useState(new Set(SOURCES.filter(s => s.open).map(s => s.k)));
+  const [terms, setTerms] = useState([]);
+  const [inputValue, setInputValue] = useState('');
+  const [combo, setCombo] = useState('and'); // 'and' | 'or' | 'phrase'
+
+  // Results & APIs state
   const [loadingSearch, setLoadingSearch] = useState(false);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [results, setResults] = useState([]);
   const [searched, setSearched] = useState(false);
   const [page, setPage] = useState(1);
   const [totalResults, setTotalResults] = useState(0);
-  const [pageSize, setPageSize] = useState(60);
-  
+  const pageSize = 60;
+
   const [selectedSummary, setSelectedSummary] = useState(null);
   const [selectedJudgments, setSelectedJudgments] = useState({});
   const [loadingExport, setLoadingExport] = useState(false);
@@ -26,41 +172,137 @@ function App() {
   const [autoSummaries, setAutoSummaries] = useState({});
   const [loadingAutoSummaries, setLoadingAutoSummaries] = useState({});
 
-  // List of administrative court divisions
-  const sediList = [
-    { value: 'all', label: 'Tutte le Sedi' },
-    { value: 'Consiglio di Stato', label: 'Consiglio di Stato' },
-    { value: 'C.G.A.R.S', label: 'C.G.A.R.S (Sicilia)' },
-    { value: 'Roma', label: 'Roma (Lazio)' },
-    { value: 'Milano', label: 'Milano (Lombardia)' },
-    { value: 'Napoli', label: 'Napoli (Campania)' },
-    { value: 'Bari', label: 'Bari (Puglia)' },
-    { value: 'Bologna', label: 'Bologna (Emilia-Romagna)' },
-    { value: 'Catania', label: 'Catania (Sicilia - Sez. Staccata)' },
-    { value: 'Firenze', label: 'Firenze (Toscana)' },
-    { value: 'Genova', label: 'Genova (Liguria)' },
-    { value: 'Palermo', label: 'Palermo (Sicilia)' },
-    { value: 'Torino', label: 'Torino (Piemonte)' },
-    { value: 'Venezia', label: 'Venezia (Veneto)' }
-  ];
+  // Helper functions for tags
+  const addTerm = (text) => {
+    const cleanText = text.trim();
+    if (!cleanText) return;
+    const parts = cleanText.split(',').map(s => s.trim()).filter(Boolean);
+    setTerms(prev => {
+      const next = [...prev];
+      parts.forEach(p => {
+        if (!next.includes(p)) next.push(p);
+      });
+      return next;
+    });
+    setInputValue('');
+  };
 
-  // List of decision types
-  const tipiList = [
-    { value: 'all', label: 'Tutti i Provvedimenti' },
-    { value: 'Sentenza', label: 'Sentenza' },
-    { value: 'Ordinanza', label: 'Ordinanza' },
-    { value: 'Decreto', label: 'Decreto' },
-    { value: 'Parere', label: 'Parere' },
-    { value: 'Adunanza Plenaria', label: 'Adunanza Plenaria' }
-  ];
+  const removeTerm = (index) => {
+    setTerms(prev => prev.filter((_, i) => i !== index));
+  };
 
-  // List of years
-  const anniList = ['all', '2026', '2025', '2024', '2023', '2022', '2021', '2020', '2019', '2018'];
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      addTerm(inputValue);
+    } else if (e.key === 'Backspace' && !inputValue && terms.length > 0) {
+      removeTerm(terms.length - 1);
+    }
+  };
+
+  const handleBlur = () => {
+    addTerm(inputValue);
+  };
+
+  const resetGuided = () => {
+    setMacro(null);
+    setL1(null);
+    setL2(null);
+    setL3(null);
+    setResults([]);
+    setSearched(false);
+  };
+
+  // Breadcrumbs logic
+  const getGuidedLabels = () => {
+    if (!macro) return {};
+    const b = DATA[macro];
+    const o = b.options[l1] || {};
+    const out = {};
+    out.macro = macro === "giurisdizione" ? "Giurisdizione" : "Autorità indipendenti";
+    if (l1) {
+      out.l1 = o.label + (o.sub ? ` ${o.sub}` : "");
+      if (macro === "giurisdizione") {
+        if (l2) {
+          const gr = o.gradi[l2];
+          out.l2 = `${gr.label} · ${gr.sub}`;
+          if (l3 != null) out.l3 = gr.luoghi[+l3];
+        }
+      } else if (l2 != null) {
+        out.l2 = o.tipi[+l2];
+      }
+    }
+    return out;
+  };
+
+  // Build query display markup (React elements)
+  const renderQueryString = () => {
+    let head = null;
+    if (mode === "guidata") {
+      if (!macro) {
+        return <span className="q-empty">Scegli un percorso o le fonti, poi aggiungi le parole.</span>;
+      }
+      const L = getGuidedLabels();
+      const parts = [<span key="macro" className="q-label">{L.macro.toUpperCase()}</span>];
+      if (L.l1) parts.push(<span key="sep-1" className="q-sep">›</span>, <span key="l1">{L.l1.toUpperCase()}</span>);
+      if (L.l2) parts.push(<span key="sep-2" className="q-sep">›</span>, <span key="l2">{L.l2.toUpperCase()}</span>);
+      if (L.l3) parts.push(<span key="sep-3" className="q-sep">›</span>, <span key="l3">{L.l3.toUpperCase()}</span>);
+      head = <React.Fragment>{parts}</React.Fragment>;
+    } else {
+      head = (
+        <React.Fragment>
+          <span className="q-label">TUTTE LE FONTI</span>
+          <span className="q-sep">›</span>
+          {globalSources.size} selezionate
+        </React.Fragment>
+      );
+    }
+
+    if (terms.length === 0) {
+      return head;
+    }
+
+    const opSymbol = combo === "and" ? "+" : combo === "or" ? "/" : " ";
+    const kwElements = [];
+    
+    if (combo === "phrase") {
+      const phraseText = terms.map(t => t.replace(/^-/, '')).join(' ');
+      kwElements.push(<span key="phrase" className="q-kw">"{phraseText}"</span>);
+    } else {
+      terms.forEach((t, i) => {
+        if (i > 0) {
+          kwElements.push(<span key={`sep-kw-${i}`} className="q-op">{opSymbol}</span>);
+        }
+        if (t.startsWith("-")) {
+          kwElements.push(<span key={`kw-${i}`} className="q-ex">{t.slice(1)}</span>);
+        } else {
+          kwElements.push(<span key={`kw-${i}`} className="q-kw">"{t}"</span>);
+        }
+      });
+    }
+
+    return (
+      <React.Fragment>
+        {head}
+        <span className="q-sep">›</span>
+        {kwElements}
+      </React.Fragment>
+    );
+  };
+
+  // Check search button disabled state
+  const isSearchDisabled = () => {
+    if (mode === "guidata") {
+      if (!macro) return true;
+      if (macro === "giurisdizione") return l3 == null;
+      return l2 == null;
+    }
+    return globalSources.size === 0;
+  };
 
   const triggerAutoSummaries = async (items) => {
     const firstFive = items.slice(0, 5);
     for (const item of firstFive) {
-      // Add a 3-second delay between requests to respect Gemini free-tier rate limits
       if (item !== firstFive[0]) {
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
@@ -85,9 +327,7 @@ function App() {
     }
   };
 
-  const executeSearch = async (pageToFetch = 1, sizeToFetch = pageSize) => {
-    if (!keywords.trim()) return;
-
+  const executeSearch = async (pageToFetch = 1) => {
     setLoadingSearch(true);
     setError(null);
     setSearched(true);
@@ -95,7 +335,29 @@ function App() {
     setAutoSummaries({});
     setLoadingAutoSummaries({});
     setPage(pageToFetch);
-    setSelectedJudgments({}); // Reset selection on new search
+    setSelectedJudgments({});
+
+    let bodyParams = {};
+    if (mode === "guidata") {
+      const L = getGuidedLabels();
+      bodyParams = {
+        modo: "guidato",
+        fonte: macro,
+        plesso: l1,
+        grado: macro === "giurisdizione" ? l2 : null,
+        sede: macro === "giurisdizione" && l3 != null ? L.l3 : null,
+        tipo: macro === "autorita" && l2 != null ? L.l2 : null
+      };
+    } else {
+      bodyParams = {
+        modo: "globale",
+        fonti: Array.from(globalSources)
+      };
+    }
+    bodyParams.parole = terms.length ? terms : null;
+    bodyParams.logica = terms.length ? combo : null;
+    bodyParams.page = pageToFetch;
+    bodyParams.pageSize = pageSize;
 
     try {
       const response = await fetch(`${API_URL}/api/search`, {
@@ -103,7 +365,7 @@ function App() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ keywords, sede, tipo, anno, page: pageToFetch, pageSize: sizeToFetch })
+        body: JSON.stringify(bodyParams)
       });
 
       const data = await response.json();
@@ -113,7 +375,6 @@ function App() {
 
       setResults(data.results || []);
       setTotalResults(data.totalResults || 0);
-      // Avvia la generazione automatica delle sintesi veloci per i primi 5 risultati
       triggerAutoSummaries(data.results || []);
     } catch (err) {
       console.error(err);
@@ -123,20 +384,14 @@ function App() {
     }
   };
 
-  const handleSearchSubmit = (e) => {
-    e.preventDefault();
-    executeSearch(1, pageSize);
-  };
-
   const toggleSelect = (judgment) => {
     setSelectedJudgments(prev => {
       const next = { ...prev };
       if (next[judgment.id]) {
         delete next[judgment.id];
       } else {
-        // Enforce safety limit on selection - updated to 60
         if (Object.keys(prev).length >= 60) {
-          alert("Attenzione: puoi selezionare al massimo 60 sentenze alla volta per evitare sovraccarichi o blocchi del portale.");
+          alert("Attenzione: puoi selezionare al massimo 60 sentenze alla volta.");
           return prev;
         }
         next[judgment.id] = judgment;
@@ -163,7 +418,7 @@ function App() {
         for (const item of results) {
           if (!next[item.id]) {
             if (count >= 60) {
-              alert("Attenzione: è stato raggiunto il limite massimo di 60 sentenze selezionabili contemporaneamente.");
+              alert("Attenzione: è stato raggiunto il limite massimo di 60 sentenze selezionabili.");
               break;
             }
             next[item.id] = item;
@@ -178,11 +433,6 @@ function App() {
   const handleExportSelected = async () => {
     const selectedList = Object.values(selectedJudgments);
     if (selectedList.length === 0) return;
-
-    if (selectedList.length > 60) {
-      alert(`Attenzione: puoi esportare al massimo 60 sentenze alla volta. Attualmente ne hai selezionate ${selectedList.length}. Deseleziona alcune sentenze prima di procedere.`);
-      return;
-    }
 
     setLoadingExport(true);
     setError(null);
@@ -249,7 +499,6 @@ function App() {
     }
   };
 
-  // Safe simple Markdown parser
   const renderMarkdown = (text) => {
     if (!text) return '';
     return text
@@ -276,325 +525,479 @@ function App() {
       .replace(/`([^`]+)`/g, '<code>$1</code>');
   };
 
+  const toggleGlobalSource = (key) => {
+    setGlobalSources(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const selectOnlyOpenSources = () => {
+    setGlobalSources(new Set(SOURCES.filter(s => s.open).map(s => s.k)));
+  };
+
+  const clearGlobalSources = () => {
+    setGlobalSources(new Set());
+  };
+
+  // Cascade selection handlers
+  const handleMacroClick = (m) => {
+    setMacro(m);
+    setL1(null);
+    setL2(null);
+    setL3(null);
+  };
+
+  const handleL1Click = (val) => {
+    setL1(val);
+    setL2(null);
+    setL3(null);
+  };
+
+  const handleL2Click = (val) => {
+    setL2(val);
+    setL3(null);
+  };
+
+  const handleL3Click = (val) => {
+    setL3(val);
+  };
+
   return (
-    <div className="app-container">
-      {/* Sidebar Controls */}
-      <aside className="sidebar">
-        <div className="brand-section">
-          <h1 className="brand-logo">
-            Lex<span>Summarizer</span>
-          </h1>
-        </div>
-        <div className="brand-subtitle">Ricerca Sentenze TAR</div>
+    <React.Fragment>
+      <header className="topbar">
+        <div className="wordmark">Studio Legale <span>Francesco Poli</span></div>
+        <div className="addr">Corso Palladio 134 — Vicenza</div>
+      </header>
 
-        <form onSubmit={handleSearchSubmit} className="search-form">
-          <div className="form-group">
-            <label className="form-label" htmlFor="keywords">Parole chiave</label>
-            <input
-              id="keywords"
-              type="text"
-              className="form-input"
-              placeholder="es. silenzio assenso espropriazione"
-              value={keywords}
-              onChange={(e) => setKeywords(e.target.value)}
-              required
-            />
+      <main className="wrap">
+        <div className="eyebrow">Banche dati · accesso unificato</div>
+        <h1>Ricerca giurisprudenziale</h1>
+        <p className="lede">Segui un percorso guidato — fonte, grado, sede — oppure cerca su tutte le banche dati insieme. Poi affina per una parola o per un insieme di parole.</p>
+
+        <section className="card">
+          <div className="arch" aria-hidden="true">
+            <svg viewBox="0 0 200 200" fill="none" stroke="var(--ink)" strokeWidth="1.4">
+              <path d="M30 195 V90 A70 70 0 0 1 170 90 V195"/>
+              <path d="M52 195 V96 A48 48 0 0 1 148 96 V195"/>
+              <line x1="14" y1="90" x2="186" y2="90"/><line x1="20" y1="195" x2="180" y2="195"/>
+            </svg>
           </div>
 
-          <div className="form-group">
-            <label className="form-label" htmlFor="sede">Sede Giudiziaria</label>
-            <select
-              id="sede"
-              className="form-select"
-              value={sede}
-              onChange={(e) => setSede(e.target.value)}
-            >
-              {sediList.map(item => (
-                <option key={item.value} value={item.value} style={{ color: '#111827', backgroundColor: '#ffffff' }}>{item.label}</option>
-              ))}
-            </select>
-          </div>
+          <div className="card-inner">
+            <div className="modebar" role="tablist">
+              <button 
+                className={`seg ${mode === 'guidata' ? 'active' : ''}`}
+                onClick={() => { setMode('guidata'); setResults([]); setSearched(false); }}
+              >
+                Percorso guidato
+              </button>
+              <button 
+                className={`seg ${mode === 'global' ? 'active' : ''}`}
+                onClick={() => { setMode('global'); setResults([]); setSearched(false); }}
+              >
+                Tutte le fonti
+              </button>
+            </div>
 
-          <div className="form-group">
-            <label className="form-label" htmlFor="tipo">Tipologia Provvedimento</label>
-            <select
-              id="tipo"
-              className="form-select"
-              value={tipo}
-              onChange={(e) => setTipo(e.target.value)}
-            >
-              {tipiList.map(item => (
-                <option key={item.value} value={item.value} style={{ color: '#111827', backgroundColor: '#ffffff' }}>{item.label}</option>
-              ))}
-            </select>
-          </div>
+            {/* Breadcrumbs */}
+            <div className="crumbs" aria-live="polite">
+              {mode === "global" ? (
+                <span className="crumb"><b>Tutte le fonti</b>{terms.length > 0 && <span className="crumb"><span className="sep">›</span> {terms.length} parole</span>}</span>
+              ) : (
+                macro && (
+                  <React.Fragment>
+                    <span className="crumb"><b>{getGuidedLabels().macro}</b></span>
+                    {getGuidedLabels().l1 && <span className="crumb"><span className="sep">›</span> {getGuidedLabels().l1}</span>}
+                    {getGuidedLabels().l2 && <span className="crumb"><span className="sep">›</span> {getGuidedLabels().l2}</span>}
+                    {getGuidedLabels().l3 && <span className="crumb"><span className="sep">›</span> {getGuidedLabels().l3}</span>}
+                    <button className="crumb reset" onClick={resetGuided}>↺ azzera percorso</button>
+                  </React.Fragment>
+                )
+              )}
+            </div>
 
-          <div className="form-group">
-            <label className="form-label" htmlFor="anno">Anno</label>
-            <select
-              id="anno"
-              className="form-select"
-              value={anno}
-              onChange={(e) => setAnno(e.target.value)}
-            >
-              {anniList.map(year => (
-                <option key={year} value={year} style={{ color: '#111827', backgroundColor: '#ffffff' }}>{year === 'all' ? 'Tutti gli Anni' : year}</option>
-              ))}
-            </select>
-          </div>
+            {/* GUIDED PATH MODE */}
+            {mode === 'guidata' && (
+              <div id="guided">
+                <div className="step">
+                  <div className="step-label"><span className="step-num">1</span> Fonte</div>
+                  <div className="macro">
+                    <button 
+                      className={`macro-btn ${macro === 'giurisdizione' ? 'active' : ''}`}
+                      onClick={() => handleMacroClick('giurisdizione')}
+                    >
+                      <div className="macro-kicker">01</div>
+                      <div className="macro-title">Giurisdizione</div>
+                      <div className="macro-sub">Amministrativa, ordinaria, contabile, costituzionale, tributaria</div>
+                    </button>
+                    <button 
+                      className={`macro-btn ${macro === 'autorita' ? 'active' : ''}`}
+                      onClick={() => handleMacroClick('autorita')}
+                    >
+                      <div className="macro-kicker">02</div>
+                      <div className="macro-title">Autorità indipendenti</div>
+                      <div className="macro-sub">ANAC, AGCM, AGCOM, Garante Privacy, ARERA, CONSOB</div>
+                    </button>
+                  </div>
+                </div>
 
+                {macro && (
+                  <div className="step">
+                    <div className="step-label"><span className="step-num">2</span> {DATA[macro].l1Label}</div>
+                    <div className="chips">
+                      {Object.keys(DATA[macro].options).map(key => {
+                        const o = DATA[macro].options[key];
+                        return (
+                          <button 
+                            key={key} 
+                            className={`chip ${l1 === key ? 'active' : ''}`}
+                            onClick={() => handleL1Click(key)}
+                          >
+                            {o.label}
+                            {o.sub && <small>{o.sub}</small>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
-          <button type="submit" className="btn-search" disabled={loadingSearch}>
-            {loadingSearch ? (
-              <>
-                <span className="pulse">Ricerca in corso...</span>
-              </>
-            ) : (
-              <>Cerca Sentenze</>
+                {macro && l1 && (
+                  <div className="step">
+                    <div className="step-label">
+                      <span className="step-num">3</span> {macro === 'giurisdizione' ? 'Grado' : 'Tipo di provvedimento'}
+                    </div>
+                    <div className="chips">
+                      {macro === 'giurisdizione' ? (
+                        Object.keys(DATA[macro].options[l1].gradi).map(key => {
+                          const gr = DATA[macro].options[l1].gradi[key];
+                          return (
+                            <button 
+                              key={key} 
+                              className={`chip ${l2 === key ? 'active' : ''}`}
+                              onClick={() => handleL2Click(key)}
+                            >
+                              {gr.label}
+                              {gr.sub && <small>{gr.sub}</small>}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        DATA[macro].options[l1].tipi.map((t, idx) => (
+                          <button 
+                            key={idx} 
+                            className={`chip ${l2 === String(idx) ? 'active' : ''}`}
+                            onClick={() => handleL2Click(String(idx))}
+                          >
+                            {t}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {macro === 'giurisdizione' && l1 && l2 && (
+                  <div className="step">
+                    <div className="step-label"><span className="step-num">4</span> Sede</div>
+                    <div className="chips">
+                      {DATA[macro].options[l1].gradi[l2].luoghi.map((l, idx) => (
+                        <button 
+                          key={idx} 
+                          className={`chip ${l3 === String(idx) ? 'active' : ''}`}
+                          onClick={() => handleL3Click(String(idx))}
+                        >
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
-          </button>
-        </form>
-      </aside>
 
-      {/* Main Content Area */}
-      <main className="main-content">
+            {/* GLOBAL SOURCES MODE */}
+            {mode === 'global' && (
+              <div id="global">
+                <div className="cat-tools">
+                  <div className="cat-count"><b>{globalSources.size}</b> fonti selezionate</div>
+                  <div>
+                    <button className="linkbtn" onClick={selectOnlyOpenSources}>Solo fonti aperte</button>
+                    &nbsp;·&nbsp;
+                    <button className="linkbtn" onClick={clearGlobalSources}>Azzera</button>
+                  </div>
+                </div>
+
+                {/* Grouped sources layout */}
+                {Object.values(SOURCES.reduce((acc, curr) => {
+                  if (!acc[curr.fam]) acc[curr.fam] = { fam: curr.fam, items: [] };
+                  acc[curr.fam].items.push(curr);
+                  return acc;
+                }, {})).map((group, gIdx) => (
+                  <div key={gIdx}>
+                    <div className="fam-title">{group.fam}</div>
+                    <div className="cat-grid">
+                      {group.items.map(s => {
+                        const on = globalSources.has(s.k);
+                        return (
+                          <button 
+                            key={s.k} 
+                            className={`src ${on ? 'on' : ''} ${s.open ? '' : 'locked'}`}
+                            onClick={() => toggleGlobalSource(s.k)}
+                          >
+                            <span className="dot"></span>
+                            <span>
+                              <span className="src-name">
+                                {s.label}
+                                {!s.open && <span className="lock">auth</span>}
+                              </span>
+                              <span className="src-sub">{s.sub}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* KEYWORDS BLOCK */}
+            <div className="kw-block">
+              <div className="kw-head">
+                <label>Parole della ricerca</label>
+                <div className="combo">
+                  <button className={combo === 'and' ? 'on' : ''} onClick={() => setCombo('and')}>Tutte (AND)</button>
+                  <button className={combo === 'or' ? 'on' : ''} onClick={() => setCombo('or')}>Almeno una (OR)</button>
+                  <button className={combo === 'phrase' ? 'on' : ''} onClick={() => setCombo('phrase')}>Frase esatta</button>
+                </div>
+              </div>
+
+              <div className="tagbox" onClick={() => document.getElementById('kw-input')?.focus()}>
+                {terms.map((term, i) => {
+                  const excl = term.startsWith("-");
+                  return (
+                    <span key={i} className={`tag ${excl ? 'excl' : ''}`}>
+                      <b>{excl ? term.slice(1) : term}</b>
+                      <button onClick={(e) => { e.stopPropagation(); removeTerm(i); }} aria-label="rimuovi">×</button>
+                    </span>
+                  );
+                })}
+                <input 
+                  id="kw-input"
+                  type="text" 
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onBlur={handleBlur}
+                  placeholder="scrivi una parola e premi Invio — aggiungine quante vuoi"
+                  autocomplete="off"
+                />
+              </div>
+
+              <div className="kw-hint">
+                Invio o virgola per aggiungere un termine. Anteponi <code>-</code> per escludere una parola (es. <code>-marittimo</code>).
+              </div>
+            </div>
+
+            <div className="submit-row">
+              <button 
+                className="cerca" 
+                disabled={isSearchDisabled() || loadingSearch}
+                onClick={() => executeSearch(1)}
+              >
+                {loadingSearch ? "Cerca in corso..." : "Cerca"}
+              </button>
+            </div>
+
+            <div className="query">
+              {renderQueryString()}
+            </div>
+          </div>
+        </section>
+
+        {/* RESULTS SECTION */}
         {error && !drawerOpen && (
-          <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--color-error)', padding: '1rem', borderRadius: 'var(--radius-md)', color: 'var(--color-error)' }}>
+          <div className="drawer-error" style={{ marginTop: '20px' }}>
             <strong>Errore:</strong> {error}
           </div>
         )}
 
-        {/* Results Header */}
-        {searched && (
-          <div className="results-header">
-            <h2 className="results-title">Risultati della Ricerca</h2>
-            <span className="results-count">
-              {loadingSearch ? '...' : `${results.length} trovati`}
-            </span>
-          </div>
-        )}
-
-        {/* Loading Indicator */}
         {loadingSearch && (
           <div className="loading-container">
             <div className="spinner"></div>
-            <p className="pulse">Navigazione sul portale della Giustizia Amministrativa...</p>
+            <p className="pulse">Navigazione e recupero delle banche dati in corso...</p>
           </div>
         )}
 
-        {/* Selection Bulk Actions Bar */}
-        {!loadingSearch && results.length > 0 && (
-          <div className="bulk-actions-bar" style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '1rem',
-            marginBottom: '1rem',
-            backgroundColor: 'rgba(255, 255, 255, 0.02)',
-            borderRadius: 'var(--radius-md)',
-            border: '1px solid rgba(255, 255, 255, 0.05)'
-          }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
-              <input
-                type="checkbox"
-                checked={isAllSelected}
-                onChange={toggleSelectAll}
-                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-              />
-              Seleziona tutte le sentenze della pagina ({results.length})
-            </label>
-            
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <span style={{ fontSize: '0.9rem', color: 'var(--color-muted)' }}>
-                Selezionate: <strong style={{ color: 'var(--color-accent)' }}>{Object.keys(selectedJudgments).length}</strong> / 60 max
-              </span>
-              
-              <button
-                onClick={handleExportSelected}
-                disabled={Object.keys(selectedJudgments).length === 0 || loadingExport}
-                className="btn-action btn-action-primary"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.5rem 1rem',
-                  opacity: (Object.keys(selectedJudgments).length === 0 || loadingExport) ? 0.5 : 1,
-                  cursor: (Object.keys(selectedJudgments).length === 0 || loadingExport) ? 'not-allowed' : 'pointer'
-                }}
-              >
-                {loadingExport ? 'Esportazione in corso...' : 'Scarica Testo Unificato (.txt)'}
-              </button>
+        {searched && !loadingSearch && (
+          <section className="results-section">
+            <div className="results-header-container">
+              <h2 className="results-title">Risultati della Ricerca</h2>
+              <span className="results-count-badge">{results.length} trovati</span>
             </div>
-          </div>
-        )}
 
-        {/* Results List */}
-        {!loadingSearch && results.length > 0 && (
-          <div className="results-list">
-            {results.map((item) => (
-              <article key={item.id} className="judgment-card" style={{ position: 'relative', paddingLeft: '3.5rem' }}>
-                <input
-                  type="checkbox"
-                  checked={!!selectedJudgments[item.id]}
-                  onChange={() => toggleSelect(item)}
-                  style={{
-                    position: 'absolute',
-                    left: '1.2rem',
-                    top: '1.5rem',
-                    width: '18px',
-                    height: '18px',
-                    cursor: 'pointer'
-                  }}
-                />
-                <div className="card-top">
-                  <div className="tag-container">
-                    <span className="badge badge-tipo">{item.tipo || 'Provvedimento'}</span>
-                    <span className="badge badge-sede">{item.sede || 'N/A'}</span>
-                    {item.ricorso && <span className="badge badge-ricorso">Ric. {item.ricorso}</span>}
-                  </div>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--color-accent)', fontWeight: 600 }}>
-                    N. {item.numeroProvv}
-                  </div>
-                </div>
-
-                <h3 className="card-title">
-                  {item.tipo} {item.sede} Sez. {item.sezione} - N. {item.numeroProvv}
-                </h3>
-
-                {item.snippet && (
-                  <p className="card-snippet" dangerouslySetInnerHTML={{ __html: item.snippet }}></p>
-                )}
-
-                {/* Auto Quick Summary Box */}
-                {(autoSummaries[item.id] || loadingAutoSummaries[item.id]) && (
-                  <div className="auto-summary-box" style={{ 
-                    marginTop: '0.5rem', 
-                    padding: '1rem', 
-                    borderRadius: 'var(--radius-md)', 
-                    backgroundColor: 'rgba(212, 175, 55, 0.05)', 
-                    border: '1px dashed rgba(212, 175, 55, 0.2)' 
-                  }}>
-                    <div style={{ fontSize: '0.85rem', color: 'var(--color-accent)', fontWeight: 600, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span className="pulse-dot" style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--color-accent)', display: 'inline-block' }}></span>
-                      Sintesi Veloce Automatica
-                    </div>
-                    {loadingAutoSummaries[item.id] ? (
-                      <p className="pulse" style={{ fontSize: '0.9rem', color: 'var(--color-muted)' }}>Generazione sintesi in corso...</p>
-                    ) : (
-                      <div 
-                        className="summary-body" 
-                        style={{ fontSize: '0.9rem', color: 'var(--color-text)' }}
-                        dangerouslySetInnerHTML={{ __html: renderMarkdown(autoSummaries[item.id]) }}
-                      ></div>
-                    )}
-                  </div>
-                )}
-
-                <div className="card-footer">
-                  <span className="ecli-text">{item.ecli}</span>
-                  <div className="card-actions">
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn-action"
-                    >
-                      Apri Originale
-                    </a>
-                    <button
-                      onClick={() => handleSummarize(item, 'quick')}
-                      className="btn-action"
-                      style={{ borderColor: 'var(--color-accent)', color: 'var(--color-accent)' }}
-                    >
-                      Sintesi Veloce
-                    </button>
-                    <button
-                      onClick={() => handleSummarize(item, 'detailed')}
+            {results.length > 0 ? (
+              <React.Fragment>
+                {/* Bulk Actions */}
+                <div className="bulk-actions-bar">
+                  <label>
+                    <input 
+                      type="checkbox" 
+                      checked={isAllSelected}
+                      onChange={toggleSelectAll}
+                    />
+                    Seleziona tutti i provvedimenti ({results.length})
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <span style={{ fontSize: '12.5px' }}>
+                      Selezionati: <b>{Object.keys(selectedJudgments).length}</b> / 60 max
+                    </span>
+                    <button 
                       className="btn-action btn-action-primary"
+                      disabled={Object.keys(selectedJudgments).length === 0 || loadingExport}
+                      onClick={handleExportSelected}
                     >
-                      Riassunto Completo
+                      {loadingExport ? "Esportazione..." : "Scarica Testo Unificato (.txt)"}
                     </button>
                   </div>
                 </div>
-              </article>
-            ))}
+
+                {/* Results Cards List */}
+                <div className="results-list">
+                  {results.map((item) => (
+                    <article key={item.id} className="judgment-card" style={{ paddingLeft: '54px' }}>
+                      <input 
+                        type="checkbox" 
+                        className="judgment-card-select"
+                        checked={!!selectedJudgments[item.id]}
+                        onChange={() => toggleSelect(item)}
+                      />
+
+                      <div className="card-top">
+                        <div className="tag-container">
+                          <span className="badge badge-tipo">{item.tipo || 'Provvedimento'}</span>
+                          <span className="badge badge-sede">{item.sede || 'N/A'}</span>
+                          {item.ricorso && <span className="badge badge-ricorso">Ric. {item.ricorso}</span>}
+                        </div>
+                        <span className="card-number">N. {item.numeroProvv}</span>
+                      </div>
+
+                      <h3 className="card-title">
+                        {item.tipo} {item.sede} Sez. {item.sezione} - N. {item.numeroProvv}
+                      </h3>
+
+                      {item.snippet && (
+                        <p className="card-snippet" dangerouslySetInnerHTML={{ __html: item.snippet }}></p>
+                      )}
+
+                      {/* Auto Quick Summary Box */}
+                      {(autoSummaries[item.id] || loadingAutoSummaries[item.id]) && (
+                        <div className="auto-summary-box">
+                          <div className="auto-summary-title">
+                            <span className="pulse-dot"></span>
+                            Sintesi Veloce Automatica
+                          </div>
+                          {loadingAutoSummaries[item.id] ? (
+                            <p className="pulse">Generazione sintesi in corso...</p>
+                          ) : (
+                            <div 
+                              className="summary-body" 
+                              dangerouslySetInnerHTML={{ __html: renderMarkdown(autoSummaries[item.id]) }}
+                            ></div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="card-footer">
+                        <span className="ecli-text">{item.ecli}</span>
+                        <div className="card-actions">
+                          {item.url && (
+                            <a 
+                              href={item.url} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="btn-action"
+                            >
+                              Apri Originale
+                            </a>
+                          )}
+                          <button 
+                            className="btn-action" 
+                            style={{ borderColor: 'var(--brass)', color: 'var(--brass)' }}
+                            onClick={() => handleSummarize(item, 'quick')}
+                          >
+                            Sintesi Veloce
+                          </button>
+                          <button 
+                            className="btn-action btn-action-primary"
+                            onClick={() => handleSummarize(item, 'detailed')}
+                          >
+                            Riassunto Completo
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                {totalResults > pageSize && (
+                  <div className="pagination-controls">
+                    <button 
+                      className="btn-action"
+                      disabled={page <= 1}
+                      onClick={() => executeSearch(page - 1)}
+                    >
+                      &larr; Precedente
+                    </button>
+                    <span style={{ fontSize: '13px' }}>
+                      Pagina <b>{page}</b> di <b>{Math.ceil(totalResults / pageSize)}</b> ({totalResults} risultati)
+                    </span>
+                    <button 
+                      className="btn-action"
+                      disabled={page >= Math.ceil(totalResults / pageSize)}
+                      onClick={() => executeSearch(page + 1)}
+                    >
+                      Successiva &rarr;
+                    </button>
+                  </div>
+                )}
+              </React.Fragment>
+            ) : (
+              <div className="empty-state">
+                <h3>Nessun risultato trovato</h3>
+                <p>Nessun provvedimento corrisponde ai criteri inseriti. Prova a modificare le parole chiave o a cambiare i filtri.</p>
+              </div>
+            )}
+          </section>
+        )}
+
+        {!searched && !loadingSearch && (
+          <div className="empty-state" style={{ marginTop: '36px' }}>
+            <h3>Pronto per la ricerca</h3>
+            <p>Seleziona una delle modalità qui sopra per iniziare la ricerca giurisprudenziale unificata.</p>
           </div>
         )}
 
-        {/* Controlli Paginazione */}
-        {!loadingSearch && results.length > 0 && totalResults > pageSize && (
-          <div className="pagination-controls" style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: '1.5rem',
-            marginTop: '2rem',
-            padding: '1rem',
-            backgroundColor: 'rgba(255, 255, 255, 0.02)',
-            borderRadius: 'var(--radius-md)',
-            border: '1px solid rgba(255, 255, 255, 0.05)'
-          }}>
-            <button
-              onClick={() => executeSearch(page - 1)}
-              disabled={page <= 1}
-              className="btn-action"
-              style={{
-                padding: '0.5rem 1rem',
-                cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                opacity: page <= 1 ? 0.5 : 1
-              }}
-            >
-              &larr; Precedente
-            </button>
-            
-            <span style={{ fontSize: '0.9rem', color: 'var(--color-muted)' }}>
-              Pagina <strong style={{ color: 'var(--color-text)' }}>{page}</strong> di{' '}
-              <strong style={{ color: 'var(--color-text)' }}>{Math.ceil(totalResults / pageSize)}</strong>{' '}
-              ({totalResults} risultati)
-            </span>
-            
-            <button
-              onClick={() => executeSearch(page + 1)}
-              disabled={page >= Math.ceil(totalResults / pageSize)}
-              className="btn-action"
-              style={{
-                padding: '0.5rem 1rem',
-                cursor: page >= Math.ceil(totalResults / pageSize) ? 'not-allowed' : 'pointer',
-                opacity: page >= Math.ceil(totalResults / pageSize) ? 0.5 : 1
-              }}
-            >
-              Successiva &rarr;
-            </button>
-          </div>
-        )}
-
-        {/* Empty States */}
-        {!loadingSearch && !searched && (
-          <div className="empty-state">
-            <h3>Nessuna ricerca effettuata</h3>
-            <p>Inserisci delle parole chiave nella barra laterale per cercare provvedimenti ufficiali del TAR e del Consiglio di Stato.</p>
-          </div>
-        )}
-
-        {!loadingSearch && searched && results.length === 0 && (
-          <div className="empty-state">
-            <h3>Nessun risultato trovato</h3>
-            <p>Prova ad utilizzare parole chiave diverse o a rimuovere i filtri di Sede, Tipo o Anno.</p>
-          </div>
-        )}
+        <p className="note">Concept front-end collegato alle banche dati ufficiali. Per le fonti non ancora integrate, il sistema genera una simulazione intelligente basata sulle parole chiave fornite.</p>
       </main>
 
       {/* Summary Slide-out Drawer */}
       <aside className={`summary-drawer ${drawerOpen ? 'open' : ''}`}>
         <div className="drawer-header">
-          <h2 className="drawer-title">Riassunto Sentenza</h2>
-          <button className="btn-close" onClick={() => setDrawerOpen(false)}>
-            &times;
-          </button>
+          <h2 className="drawer-title">Riassunto Provvedimento</h2>
+          <button className="btn-close" onClick={() => setDrawerOpen(false)}>&times;</button>
         </div>
 
         {error && drawerOpen && (
-          <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--color-error)', padding: '1rem', borderRadius: 'var(--radius-md)', color: 'var(--color-error)' }}>
+          <div className="drawer-error">
             <strong>Errore:</strong> {error}
           </div>
         )}
@@ -602,18 +1005,18 @@ function App() {
         {loadingSummary ? (
           <div className="loading-container">
             <div className="spinner"></div>
-            <p className="pulse">Estrazione del testo della sentenza e generazione del riassunto tramite Google Gemini API...</p>
+            <p className="pulse">Estrazione del testo del provvedimento e generazione del riassunto tramite Google Gemini API...</p>
           </div>
         ) : (
           selectedSummary && (
-            <div
-              className="summary-body"
+            <div 
+              className="summary-body" 
               dangerouslySetInnerHTML={{ __html: renderMarkdown(selectedSummary) }}
             ></div>
           )
         )}
       </aside>
-    </div>
+    </React.Fragment>
   );
 }
 

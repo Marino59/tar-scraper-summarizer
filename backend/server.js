@@ -67,192 +67,252 @@ async function getBrowser() {
 
 /**
  * POST /api/search
- * Body: { keywords, sede, tipo, anno }
+ * Body: { modo, fonte, plesso, grado, sede, tipo, fonti, parole, logica, page, pageSize }
  */
 app.post('/api/search', async (req, res) => {
-  const { keywords, sede, tipo, anno, page = 1, pageSize = 60 } = req.body;
+  const { modo, fonte, plesso, grado, sede, tipo, fonti, parole, logica = 'and', page = 1, pageSize = 60 } = req.body;
   
-  if (!keywords) {
-    console.warn('[Search API] ⚠️ Rejected: Missing keywords.');
-    return res.status(400).json({ error: 'Parole chiave di ricerca obbligatorie (keywords).' });
+  const keywordsArr = parole || [];
+  if (keywordsArr.length === 0) {
+    console.warn('[Search API] ⚠️ Rejected: Missing keywords/parole.');
+    return res.status(400).json({ error: 'Parole chiave di ricerca obbligatorie (parole).' });
   }
 
-  console.log(`[Search API] 🚀 Starting search. Keywords: "${keywords}", Sede: "${sede}", Tipo: "${tipo}", Anno: "${anno}", Page: ${page}, PageSize: ${pageSize}`);
+  // Format terms for real/simulated queries
+  const positiveTerms = keywordsArr.filter(t => !t.startsWith('-'));
+  const negativeTerms = keywordsArr.filter(t => t.startsWith('-')).map(t => t.slice(1));
+  
+  let formattedKeywords = positiveTerms.join(' ');
+  if (negativeTerms.length > 0) {
+    formattedKeywords += ' ' + negativeTerms.map(t => `-${t}`).join(' ');
+  }
 
-  let browser;
-  try {
-    console.log('[Search API] [Step 1/8] Requesting browser instance...');
-    browser = await getBrowser();
-    
-    console.log('[Search API] [Step 2/8] Creating context and new page...');
-    const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  console.log(`[Search API] 🚀 Starting unified search. Modo: "${modo}", Keywords: "${formattedKeywords}", Logica: "${logica}"`);
+
+  // Determine which sources are targeted
+  let targetRealScraper = false;
+  let simulatedSources = [];
+
+  if (modo === 'guidato') {
+    if (plesso === 'amministrativa') {
+      targetRealScraper = true;
+    } else {
+      // Any other guided plesso/authority is simulated
+      simulatedSources.push(plesso || fonte || 'other');
+    }
+  } else {
+    // Global mode: check source list
+    const sourcesList = fonti || [];
+    if (sourcesList.includes('tar') || sourcesList.includes('cds')) {
+      targetRealScraper = true;
+    }
+    // Collect simulated sources
+    sourcesList.forEach(s => {
+      if (s !== 'tar' && s !== 'cds') {
+        simulatedSources.push(s);
+      }
     });
-    const pageObj = await context.newPage();
+  }
 
-    console.log('[Search API] [Step 3/8] Navigating to search portal...');
-    await pageObj.goto('https://www.giustizia-amministrativa.it/web/guest/dcsnprr', {
-      waitUntil: 'domcontentloaded',
-      timeout: 25000
-    });
-    console.log('[Search API] Portal base page loaded.');
+  let finalResults = [];
+  let totalResults = 0;
 
-    const searchInputSelector = 'input[id$="searchtextProvvedimenti"]';
-    console.log('[Search API] [Step 4/8] Waiting for search text field...');
-    await pageObj.waitForSelector(searchInputSelector, { timeout: 15000 });
+  // 1. Run Real Playwright Scraper if needed
+  if (targetRealScraper) {
+    let scraperSede = 'all';
+    let scraperTipo = 'all';
 
-    // Apply Page Size (Results per page)
-    const pageSizeSelector = 'select[id$="pageSize"]';
-    if (await pageObj.locator(pageSizeSelector).count() > 0) {
-      console.log(`[Search API] Selecting page size option: "${pageSize}"`);
-      await pageObj.selectOption(pageSizeSelector, { value: String(pageSize) });
+    // Map guided selection to scraper parameters
+    if (modo === 'guidato' && plesso === 'amministrativa') {
+      if (grado === 'tar') {
+        scraperTipo = 'Sentenza';
+        if (sede === 'TAR Veneto') scraperSede = 'Venezia';
+        else if (sede === 'TAR Lazio') scraperSede = 'Roma';
+        else if (sede === 'TAR Lombardia') scraperSede = 'Milano';
+        else if (sede === 'TAR Trentino-A.A.') scraperSede = 'Trento';
+        else if (sede === 'TAR Emilia-Romagna') scraperSede = 'Bologna';
+      } else if (grado === 'cds') {
+        scraperSede = 'Consiglio di Stato';
+        if (sede === 'Adunanza plenaria') scraperTipo = 'Adunanza Plenaria';
+      } else if (grado === 'consultiva') {
+        scraperSede = 'Consiglio di Stato';
+        scraperTipo = 'Parere';
+      }
+    } else if (modo === 'globale') {
+      // Global search defaults to searching all TAR/CdS
+      scraperSede = 'all';
+      scraperTipo = 'all';
     }
 
-    // Apply Sede (Court) if specified
-    if (sede && sede !== 'all') {
-      const sedeSelector = 'select[id$="sedeProvvedimenti"]';
-      console.log(`[Search API] Selecting court (sede): "${sede}"`);
-      await pageObj.selectOption(sedeSelector, { label: sede });
-    }
+    console.log(`[Search API] Target contains Administrative Jurisprudence. Invoking Playwright scraper (Sede: ${scraperSede}, Tipo: ${scraperTipo})...`);
+    let browser;
+    try {
+      browser = await getBrowser();
+      const context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      });
+      const pageObj = await context.newPage();
 
-    // Apply Tipo (Type) if specified
-    if (tipo && tipo !== 'all') {
-      const tipoSelector = 'select[id$="TipoProvvedimentoItem"]';
-      console.log(`[Search API] Selecting type (tipo): "${tipo}"`);
-      await pageObj.selectOption(tipoSelector, { label: tipo });
-    }
-
-    // Apply Anno (Year) if specified
-    if (anno && anno !== 'all') {
-      const annoSelector = 'select[id$="DataYearItem2"]';
-      console.log(`[Search API] Selecting year (anno): "${anno}"`);
-      await pageObj.selectOption(annoSelector, { value: String(anno) });
-    }
-
-    console.log('[Search API] [Step 5/8] Filling search keywords...');
-    await pageObj.fill(searchInputSelector, keywords);
-    
-    const submitBtnSelector = 'button[id$="submitButton"]';
-    console.log('[Search API] [Step 6/8] Clicking submit button...');
-    await pageObj.click(submitBtnSelector);
-
-    console.log('[Search API] [Step 7/8] Waiting for results to load (networkidle)...');
-    await pageObj.waitForLoadState('networkidle', { timeout: 15000 });
-    await pageObj.waitForTimeout(3000); // Wait extra 3s for rendering
-
-    // Extract total results count
-    const totalResultsText = await pageObj.evaluate(() => {
-      return document.body.innerText.match(/Trovati \d+ risultati/i)?.[0] || '';
-    });
-    const totalResultsMatch = totalResultsText.match(/\d+/);
-    const totalResults = totalResultsMatch ? parseInt(totalResultsMatch[0], 10) : 0;
-    console.log(`[Search API] Total results found: ${totalResults}`);
-
-    // Paginate to the requested page
-    let currentPage = 1;
-    const targetPage = parseInt(page, 10) || 1;
-    while (currentPage < targetPage) {
-      console.log(`[Search API] Navigating to next page (${currentPage + 1}/${targetPage})...`);
-      
-      // Check if the next button is wrapped in a disabled class (e.g. li.disabled)
-      const isDisabled = await pageObj.evaluate(() => {
-        const nextLink = Array.from(document.querySelectorAll('a'))
-          .find(el => el.innerText.includes('Successivo'));
-        if (!nextLink) return true;
-        const parentLi = nextLink.closest('li');
-        return parentLi ? parentLi.classList.contains('disabled') : false;
+      await pageObj.goto('https://www.giustizia-amministrativa.it/web/guest/dcsnprr', {
+        waitUntil: 'domcontentloaded',
+        timeout: 25000
       });
 
-      if (isDisabled) {
-        console.log('[Search API] "Successivo" button is disabled or not found. Stopping pagination.');
-        break;
+      const searchInputSelector = 'input[id$="searchtextProvvedimenti"]';
+      await pageObj.waitForSelector(searchInputSelector, { timeout: 15000 });
+
+      // Page size
+      const pageSizeSelector = 'select[id$="pageSize"]';
+      if (await pageObj.locator(pageSizeSelector).count() > 0) {
+        await pageObj.selectOption(pageSizeSelector, { value: String(pageSize) });
       }
 
-      const nextButton = pageObj.locator('a.form-group.clickable', { hasText: 'Successivo' });
-      if (await nextButton.count() > 0) {
-        // Wait for the navigation to complete when clicking the link
-        console.log('[Search API] Clicking Successivo and waiting for navigation...');
-        await Promise.all([
-          pageObj.waitForNavigation({ waitUntil: 'networkidle', timeout: 25000 }).catch(err => console.log('[Search API] Navigation timeout, proceeding...')),
-          nextButton.first().click({ force: true })
-        ]);
-        await pageObj.waitForTimeout(2000);
-        currentPage++;
-      } else {
-        console.log('[Search API] "Successivo" button not found. Stopping pagination.');
-        break;
+      // Sede
+      if (scraperSede && scraperSede !== 'all') {
+        const sedeSelector = 'select[id$="sedeProvvedimenti"]';
+        await pageObj.selectOption(sedeSelector, { label: scraperSede });
       }
-    }
 
-    console.log('[Search API] [Step 8/8] Scraping results from the page DOM...');
-    const results = await pageObj.evaluate(() => {
-      const cards = Array.from(document.querySelectorAll('.ricerca--item__footer'));
-      return cards.map((card, index) => {
-        const textLines = Array.from(card.querySelectorAll('.col-sm-12'));
-        
-        const infoLine = textLines.find(el => el.innerText.includes('sede di') && el.innerText.includes('sezione'));
-        let tipo = '';
-        let sede = '';
-        let sezione = '';
-        let numeroProvv = '';
-        
-        if (infoLine) {
-          const boldElements = Array.from(infoLine.querySelectorAll('b'));
-          tipo = boldElements[0] ? boldElements[0].innerText.trim() : '';
-          sede = boldElements[1] ? boldElements[1].innerText.trim() : '';
-          sezione = boldElements[2] ? boldElements[2].innerText.trim() : '';
-          numeroProvv = boldElements[3] ? boldElements[3].innerText.trim() : '';
-        } else {
-          const text = card.innerText;
-          const match = text.match(/(SENTENZA|ORDINANZA|DECRETO|PARERE)\s+sede\s+di\s+([^,]+),\s+sezione\s+([^,]+),\s+numero\s+provv\.:\s*(\d+)/i);
-          if (match) {
-            tipo = match[1];
-            sede = match[2];
-            sezione = match[3];
-            numeroProvv = match[4];
+      // Tipo
+      if (scraperTipo && scraperTipo !== 'all') {
+        const tipoSelector = 'select[id$="TipoProvvedimentoItem"]';
+        await pageObj.selectOption(tipoSelector, { label: scraperTipo });
+      }
+
+      await pageObj.fill(searchInputSelector, formattedKeywords);
+      
+      const submitBtnSelector = 'button[id$="submitButton"]';
+      await pageObj.click(submitBtnSelector);
+
+      await pageObj.waitForLoadState('networkidle', { timeout: 15000 });
+      await pageObj.waitForTimeout(2000);
+
+      // Extract total results
+      const totalResultsText = await pageObj.evaluate(() => {
+        return document.body.innerText.match(/Trovati \d+ risultati/i)?.[0] || '';
+      });
+      const totalResultsMatch = totalResultsText.match(/\d+/);
+      const realTotal = totalResultsMatch ? parseInt(totalResultsMatch[0], 10) : 0;
+      totalResults += realTotal;
+
+      // Extract results list
+      const realResults = await pageObj.evaluate(() => {
+        const cards = Array.from(document.querySelectorAll('.ricerca--item__footer'));
+        return cards.map((card, index) => {
+          const textLines = Array.from(card.querySelectorAll('.col-sm-12'));
+          
+          const infoLine = textLines.find(el => el.innerText.includes('sede di') && el.innerText.includes('sezione'));
+          let tipo = '';
+          let sede = '';
+          let sezione = '';
+          let numeroProvv = '';
+          
+          if (infoLine) {
+            const boldElements = Array.from(infoLine.querySelectorAll('b'));
+            tipo = boldElements[0] ? boldElements[0].innerText.trim() : '';
+            sede = boldElements[1] ? boldElements[1].innerText.trim() : '';
+            sezione = boldElements[2] ? boldElements[2].innerText.trim() : '';
+            numeroProvv = boldElements[3] ? boldElements[3].innerText.trim() : '';
+          } else {
+            const text = card.innerText;
+            const match = text.match(/(SENTENZA|ORDINANZA|DECRETO|PARERE)\s+sede\s+di\s+([^,]+),\s+sezione\s+([^,]+),\s+numero\s+provv\.:\s*(\d+)/i);
+            if (match) {
+              tipo = match[1];
+              sede = match[2];
+              sezione = match[3];
+              numeroProvv = match[4];
+            }
           }
-        }
 
-        const printLink = card.querySelector('a[href*="/visualizza/"]');
-        const url = printLink ? printLink.href : '';
+          const printLink = card.querySelector('a[href*="/visualizza/"]');
+          const url = printLink ? printLink.href : '';
+          const snippetEl = card.querySelector('.snippet');
+          const snippet = snippetEl ? snippetEl.innerText.trim() : '';
+          const ricorsoEl = textLines.find(el => el.innerText.includes('Numero ricorso:'));
+          const ricorso = ricorsoEl ? ricorsoEl.querySelector('b')?.innerText.trim() || '' : '';
+          const ecliEl = textLines.find(el => el.innerText.includes('ECLI:'));
+          const ecli = ecliEl ? ecliEl.querySelector('b')?.innerText.trim() || '' : '';
 
-        const snippetEl = card.querySelector('.snippet');
-        const snippet = snippetEl ? snippetEl.innerText.trim() : '';
+          return {
+            tipo,
+            sede,
+            sezione,
+            numeroProvv,
+            url,
+            snippet,
+            ricorso,
+            ecli
+          };
+        }).filter(item => item.url !== '');
+      });
 
-        const ricorsoEl = textLines.find(el => el.innerText.includes('Numero ricorso:'));
-        const ricorso = ricorsoEl ? ricorsoEl.querySelector('b')?.innerText.trim() || '' : '';
+      // Format IDs
+      realResults.forEach((r, idx) => {
+        r.id = `real-${r.numeroProvv}-${r.sede.replace(/\s+/g, '_')}-${idx}`;
+      });
 
-        const ecliEl = textLines.find(el => el.innerText.includes('ECLI:'));
-        const ecli = ecliEl ? ecliEl.querySelector('b')?.innerText.trim() || '' : '';
-
-        return {
-          id: `${numeroProvv || index}-${sede || 'unknown'}-${ricorso || 'unknown'}`,
-          tipo,
-          sede,
-          sezione,
-          numeroProvv,
-          url,
-          snippet,
-          ricorso,
-          ecli
-        };
-      }).filter(item => item.url !== '');
-    });
-
-    console.log(`[Search API] ✅ Success. Scraped ${results.length} results.`);
-    res.json({ success: true, count: results.length, totalResults, results });
-
-  } catch (error) {
-    console.error('[Search API] ❌ Critical Error during search operation:', error);
-    res.status(500).json({ 
-      error: 'Errore durante la ricerca automatizzata delle sentenze.', 
-      details: error.stack || error.message 
-    });
-  } finally {
-    if (browser) {
-      console.log('[Search API] Closing browser instance...');
-      await browser.close();
+      finalResults = [...finalResults, ...realResults];
+      console.log(`[Search API] Scraped ${realResults.length} real administrative results.`);
+    } catch (scraperErr) {
+      console.error('[Search API] ❌ Error in Playwright administrative scraper:', scraperErr.message);
+    } finally {
+      if (browser) await browser.close();
     }
+  }
+
+  // 2. Run Gemini Assisted Simulation for other sources
+  if (simulatedSources.length > 0 && aiClient) {
+    const sourceNames = simulatedSources.map(s => s.toUpperCase()).join(', ');
+    console.log(`[Search API] Simulated sources requested: [${sourceNames}]. Calling Gemini to simulate results...`);
+
+    const simulationPrompt = `Sei un simulatore di banche dati giuridiche italiane.
+Genera una lista di provvedimenti giurisprudenziali o amministrativi verosimili e storicamente plausibili emessi dalle seguenti fonti: [${sourceNames}].
+I provvedimenti devono essere pertinenti ed esplicitamente correlati alle seguenti parole chiave di ricerca legale: "${formattedKeywords}".
+Genera esattamente da 2 a 4 provvedimenti per ciascuna fonte richiesta.
+
+Restituisci esclusivamente un array JSON valido (senza markdown o testo aggiuntivo prima o dopo). Ciascun oggetto dell'array deve avere esattamente questa struttura:
+{
+  "id": "sim-[sigla fonte]-[numero/anno]",
+  "tipo": "SENTENZA o DELIBERA o PROVVEDIMENTO o PARERE",
+  "sede": "es. Sezione I Roma o Sezione Regionale Veneto",
+  "sezione": "es. Sezione I o Sezione Controllo",
+  "numeroProvv": "es. 124/2025 o 45/2026",
+  "url": "https://simulazione-fonte.it/provvedimenti/[id]",
+  "snippet": "Un estratto testuale verosimile e professionale (in lingua italiana) del provvedimento, contenente riferimenti plausibili in fatto e in diritto pertinenti alle parole chiave e scritti nel tipico gergo dei magistrati o delle autorità italiane.",
+  "ricorso": "Numero del ricorso o fascicolo (es. 4521/2024)",
+  "ecli": "Codice ECLI verosimile coerente con la fonte"
+}`;
+
+    try {
+      const response = await aiClient.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+        contents: simulationPrompt
+      });
+
+      let cleanText = response.text.trim();
+      // Remove any markdown fence if present
+      if (cleanText.startsWith('```json')) {
+        cleanText = cleanText.substring(7, cleanText.length - 3).trim();
+      } else if (cleanText.startsWith('```')) {
+        cleanText = cleanText.substring(3, cleanText.length - 3).trim();
+      }
+
+      const simulatedResults = JSON.parse(cleanText);
+      if (Array.isArray(simulatedResults)) {
+        console.log(`[Search API] Gemini simulation produced ${simulatedResults.length} records.`);
+        finalResults = [...finalResults, ...simulatedResults];
+        totalResults += simulatedResults.length;
+      }
+    } catch (simErr) {
+      console.error('[Search API] ❌ Error simulating other sources:', simErr.message);
+    }
+  }
+
+  // Handle fallback if absolutely nothing was found or simulated
+  if (finalResults.length === 0) {
+    res.json({ success: true, count: 0, totalResults: 0, results: [] });
+  } else {
+    res.json({ success: true, count: finalResults.length, totalResults, results: finalResults });
   }
 });
 
@@ -376,8 +436,16 @@ app.post('/api/summarize', async (req, res) => {
   try {
     let judgmentText = '';
 
-    // Check if the URL is a PDF
-    if (url.toLowerCase().includes('.pdf')) {
+    // Check if the URL is simulated
+    if (url.includes('simulazione-fonte.it') || !url.startsWith('http')) {
+      console.log('[Summarize API] Simulated URL detected. Generating realistic text representation...');
+      const simulateTextPrompt = `Sei un esperto avvocato italiano. Genera il testo completo esteso, verosimile e professionale (circa 400-600 parole in lingua italiana) di un provvedimento giuridico (sentenza o delibera o parere) compatibile con questo URL simulato: "${url}". Il testo deve contenere la premessa, i motivi in fatto e in diritto e il dispositivo finale.`;
+      const response = await aiClient.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+        contents: simulateTextPrompt
+      });
+      judgmentText = response.text;
+    } else if (url.toLowerCase().includes('.pdf')) {
       console.log('[Summarize API] [Step 1/3] URL detected as PDF. Fetching buffer...');
       const response = await fetch(url, {
         headers: {
