@@ -2,6 +2,13 @@ import React, { useState } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
+const getAbsoluteUrl = (url) => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const base = API_URL || window.location.origin;
+  return `${base.replace(/\/$/, '')}${url}`;
+};
+
 const DATA = {
   giurisdizione: {
     l1Label: "Materia / plesso",
@@ -125,12 +132,14 @@ const ROUTE = {
   consob: "consob.it"
 };
 
+const INTEGRATED_PLESSI = ['amministrativa', 'contabile', 'costituzionale', 'anac', 'garante', 'agcm', 'agcom', 'arera', 'consob'];
+
 const SOURCES = [
   { k: "tar", fam: "Giurisdizione", label: "T.A.R.", sub: "Amministrativa · I grado", open: true, route: "giustizia-amministrativa.it" },
   { k: "cds", fam: "Giurisdizione", label: "Consiglio di Stato", sub: "Appello · Pareri", open: true, route: "giustizia-amministrativa.it" },
   { k: "conti", fam: "Giurisdizione", label: "Corte dei Conti", sub: "Giurisdizione · Controllo", open: true, route: "banchedati.corteconti.it" },
   { k: "cost", fam: "Giurisdizione", label: "Corte Costituzionale", sub: "Legittimità costituzionale", open: true, route: "cortecostituzionale.it" },
-  { k: "cgt", fam: "Giurisdizione", label: "Giustizia Tributaria", sub: "C.G.T. I/II grado", open: true, route: "def.finanze.it" },
+  { k: "cgt", fam: "Giurisdizione", label: "Giustizia Tributaria", sub: "C.G.T. I/II grado", open: false, route: "in attesa di integrazione" },
   { k: "cass", fam: "Giurisdizione", label: "Cassazione", sub: "Ordinaria · Legittimità", open: false, route: "ItalGiure — autenticato" },
   { k: "merito", fam: "Giurisdizione", label: "Merito civile", sub: "Tribunali · Corti d'Appello", open: false, route: "BDP — divieto tratt. autom." },
   { k: "anac", fam: "Autorità indipendenti", label: "ANAC", sub: "Delibere · Pareri", open: true, route: "anticorruzione.it" },
@@ -313,7 +322,7 @@ function App() {
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ url: item.url, format: 'quick' })
+          body: JSON.stringify({ url: getAbsoluteUrl(item.url), format: 'quick' })
         });
         const data = await response.json();
         if (response.ok && data.summary) {
@@ -337,6 +346,17 @@ function App() {
     setPage(pageToFetch);
     setSelectedJudgments({});
 
+    let currentTerms = [...terms];
+    if (inputValue.trim()) {
+      const cleanText = inputValue.trim();
+      const parts = cleanText.split(',').map(s => s.trim()).filter(Boolean);
+      parts.forEach(p => {
+        if (!currentTerms.includes(p)) currentTerms.push(p);
+      });
+      setTerms(currentTerms);
+      setInputValue('');
+    }
+
     let bodyParams = {};
     if (mode === "guidata") {
       const L = getGuidedLabels();
@@ -354,8 +374,8 @@ function App() {
         fonti: Array.from(globalSources)
       };
     }
-    bodyParams.parole = terms.length ? terms : null;
-    bodyParams.logica = terms.length ? combo : null;
+    bodyParams.parole = currentTerms.length ? currentTerms : null;
+    bodyParams.logica = currentTerms.length ? combo : null;
     bodyParams.page = pageToFetch;
     bodyParams.pageSize = pageSize;
 
@@ -482,7 +502,7 @@ function App() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ url: judgment.url, format })
+        body: JSON.stringify({ url: getAbsoluteUrl(judgment.url), format })
       });
 
       const data = await response.json();
@@ -653,14 +673,19 @@ function App() {
                     <div className="chips">
                       {Object.keys(DATA[macro].options).map(key => {
                         const o = DATA[macro].options[key];
+                        const isIntegrated = INTEGRATED_PLESSI.includes(key);
                         return (
                           <button 
                             key={key} 
-                            className={`chip ${l1 === key ? 'active' : ''}`}
+                            className={`chip ${l1 === key ? 'active' : ''} ${isIntegrated ? '' : 'locked'}`}
+                            disabled={!isIntegrated}
                             onClick={() => handleL1Click(key)}
+                            title={isIntegrated ? '' : 'In attesa di integrazione'}
+                            style={isIntegrated ? {} : { opacity: 0.5, cursor: 'not-allowed' }}
                           >
                             {o.label}
                             {o.sub && <small>{o.sub}</small>}
+                            {!isIntegrated && <small style={{ color: 'var(--stone-light)', fontStyle: 'italic' }}> (non disp.)</small>}
                           </button>
                         );
                       })}
@@ -919,14 +944,24 @@ function App() {
                         <span className="ecli-text">{item.ecli}</span>
                         <div className="card-actions">
                           {item.url && (
-                            <a 
-                              href={item.url} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              className="btn-action"
-                            >
-                              Apri Originale
-                            </a>
+                            item.url.includes('simulazione-') ? (
+                              <button 
+                                className="btn-action" 
+                                style={{ opacity: 0.6, cursor: 'help' }}
+                                onClick={() => alert("Questo è un provvedimento simulato dal sistema basandosi sulle tue parole chiave. Non esiste un indirizzo web originale.")}
+                              >
+                                Link Non Disponibile (Simulato)
+                              </button>
+                            ) : (
+                              <a 
+                                href={getAbsoluteUrl(item.url)} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="btn-action"
+                              >
+                                Apri Originale
+                              </a>
+                            )
                           )}
                           <button 
                             className="btn-action" 

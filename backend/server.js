@@ -6,6 +6,9 @@ import { chromium } from 'playwright';
 import { GoogleGenAI } from '@google/genai';
 import { createRequire } from 'module';
 import { PDFParse } from 'pdf-parse';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
 
@@ -65,6 +68,615 @@ async function getBrowser() {
   }
 }
 
+async function scrapeCorteConti(keywords, targetSede = '', page = 1, pageSize = 60) {
+  console.log(`[Corte dei Conti Scraper] 🚀 Starting search for: "${keywords}" (Target Sede: "${targetSede}")`);
+  let browser;
+  try {
+    browser = await getBrowser();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const pageObj = await context.newPage();
+
+    await pageObj.goto('https://banchedati.corteconti.it/', {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000
+    });
+    
+    await pageObj.waitForSelector('#inputRicerca', { timeout: 15000 });
+    let queryStr = keywords;
+    if (targetSede && !targetSede.toLowerCase().includes('tutte')) {
+      const cleanRegion = targetSede.replace('Sez. ', '').replace('— ', '').trim();
+      queryStr += ` ${cleanRegion}`;
+    }
+    await pageObj.fill('#inputRicerca', queryStr.trim());
+    await pageObj.click('#buttonSearch');
+
+    await pageObj.waitForLoadState('networkidle', { timeout: 20000 });
+    await pageObj.waitForTimeout(3000);
+
+    const results = await pageObj.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll('tr.align-top'));
+      return rows.map((row) => {
+        const cells = Array.from(row.querySelectorAll('td'));
+        if (cells.length < 5) return null;
+
+        const sede = cells[1] ? cells[1].innerText.trim() : '';
+        const tipo = cells[2] ? cells[2].innerText.trim() : '';
+        const numeroProvv = cells[3] ? cells[3].innerText.trim() : '';
+        const data = cells[4] ? cells[4].innerText.trim() : '';
+
+        const id = `corteconti-${numeroProvv}-${sede.replace(/\s+/g, '_')}`;
+
+        return {
+          id,
+          tipo: tipo || 'Delibera/Sentenza',
+          sede,
+          sezione: sede,
+          numeroProvv,
+          data,
+          url: `/api/corte-conti/download?sede=${encodeURIComponent(sede)}&tipo=${encodeURIComponent(tipo)}&numero=${encodeURIComponent(numeroProvv)}&data=${encodeURIComponent(data)}`,
+          snippet: `Provvedimento emesso da ${sede} in data ${data}.`,
+          ricorso: '',
+          ecli: ''
+        };
+      }).filter(Boolean);
+    });
+
+    let filteredResults = results;
+    if (targetSede && !targetSede.toLowerCase().includes('tutte')) {
+      let regionKeyword = targetSede.replace('Sez. ', '').replace('— ', '').trim().toUpperCase();
+      if (regionKeyword === 'TRENTINO-A.A.') regionKeyword = 'TRENTINO';
+      
+      console.log(`[Corte dei Conti Scraper] Filtering results for region keyword: "${regionKeyword}"`);
+      filteredResults = results.filter(r => r.sede.toUpperCase().includes(regionKeyword));
+    }
+
+    console.log(`[Corte dei Conti Scraper] Scraped ${results.length} results, returning ${filteredResults.length} after filter.`);
+    return filteredResults;
+  } catch (err) {
+    console.error('[Corte dei Conti Scraper] ❌ Error:', err.message);
+    return [];
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+async function scrapeCorteCostituzionale(keywords, page = 1) {
+  console.log(`[Corte Costituzionale Scraper] 🚀 Starting search for: "${keywords}" (Page: ${page})`);
+  let browser;
+  try {
+    browser = await getBrowser();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const pageObj = await context.newPage();
+
+    const searchUrl = `https://www.giurcost.org/decisioni/testuale.html?year=*&terms=${encodeURIComponent(keywords)}&pag=${page}`;
+    await pageObj.goto(searchUrl, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000
+    });
+    
+    await pageObj.waitForSelector('body', { timeout: 15000 });
+    await pageObj.waitForTimeout(2000);
+
+    const results = await pageObj.evaluate(() => {
+      const items = Array.from(document.querySelectorAll('li.list-group-item'));
+      return items.map((item, idx) => {
+        const link = item.querySelector('a');
+        if (!link) return null;
+
+        const href = link.getAttribute('href') || '';
+        const fullUrl = href.startsWith('http') ? href : `https://www.giurcost.org${href}`;
+        
+        const strongEl = link.querySelector('strong');
+        const titleText = strongEl ? strongEl.innerText.trim() : link.innerText.trim().split('\n')[0];
+        
+        let tipo = 'Sentenza';
+        let numeroProvv = '';
+        let data = '';
+        
+        const match = titleText.match(/(Sentenza|Ordinanza|Decreto)\s+(?:n\.\s*)?(\d+)\s+del\s+(\d{4})/i);
+        if (match) {
+          tipo = match[1];
+          numeroProvv = match[2];
+          data = match[3];
+        } else {
+          if (titleText.toLowerCase().includes('ordinanza')) {
+            tipo = 'Ordinanza';
+          } else if (titleText.toLowerCase().includes('decreto')) {
+            tipo = 'Decreto';
+          }
+          const numMatch = titleText.match(/\d+/g);
+          if (numMatch) {
+            numeroProvv = numMatch[0] || '';
+            data = numMatch[1] || '';
+          }
+        }
+
+        const snippetEl = link.querySelector('p.mb-1');
+        const snippet = snippetEl ? snippetEl.innerText.trim() : '';
+
+        const id = `cortecost-${numeroProvv || idx}-${data || 'year'}`;
+
+        return {
+          id,
+          tipo,
+          sede: 'Roma — sede unica',
+          sezione: 'Corte Costituzionale',
+          numeroProvv: numeroProvv ? `${numeroProvv}/${data}` : titleText,
+          data: data || 'N/D',
+          url: fullUrl,
+          snippet: snippet || `Provvedimento costituzionale: ${titleText}`,
+          ricorso: '',
+          ecli: ''
+        };
+      }).filter(Boolean);
+    });
+
+    console.log(`[Corte Costituzionale Scraper] Scraped ${results.length} results.`);
+    return results;
+  } catch (err) {
+    console.error('[Corte Costituzionale Scraper] ❌ Error:', err.message);
+    return [];
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+async function scrapeANAC(keywords, page = 1) {
+  console.log(`[ANAC Scraper] 🚀 Starting search for: "${keywords}" (Page: ${page})`);
+  let browser;
+  try {
+    browser = await getBrowser();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const pageObj = await context.newPage();
+
+    const searchUrl = `https://www.anticorruzione.it/risultati-ricerca?q=${encodeURIComponent(keywords)}&isDocumentSearchPortlet=true`;
+    await pageObj.goto(searchUrl, {
+      waitUntil: 'networkidle',
+      timeout: 30000
+    });
+    
+    await pageObj.waitForSelector('body', { timeout: 15000 });
+    await pageObj.waitForTimeout(2000);
+
+    const results = await pageObj.evaluate(() => {
+      const items = Array.from(document.querySelectorAll('.wd-card-doc'));
+      return items.map((item, idx) => {
+        const link = item.querySelector('a.linkTitle');
+        if (!link) return null;
+
+        const href = link.getAttribute('href') || '';
+        let fullUrl = href;
+        if (!href.startsWith('http')) {
+          fullUrl = href.startsWith('/') ? `https://www.anticorruzione.it${href}` : `https://www.anticorruzione.it/${href}`;
+        }
+        
+        const titleEl = item.querySelector('.card-title');
+        const title = titleEl ? titleEl.innerText.trim() : link.innerText.trim();
+        
+        const dateEl = item.querySelector('.data');
+        const data = dateEl ? dateEl.innerText.trim() : 'N/D';
+
+        const snippetEl = item.querySelector('.free-text p');
+        const snippet = snippetEl ? snippetEl.innerText.trim() : '';
+
+        const tagsList = Array.from(item.querySelectorAll('.card-tags-list li'));
+        const tags = tagsList.map(el => el.innerText.trim()).join(', ');
+
+        let tipo = 'Delibera';
+        if (title.toLowerCase().includes('parere')) tipo = 'Parere';
+        else if (title.toLowerCase().includes('regolamento') || title.toLowerCase().includes('regolazione')) tipo = 'Atto di regolazione';
+        else if (title.toLowerCase().includes('sanzione') || title.toLowerCase().includes('sanzionatorio')) tipo = 'Provv. sanzionatorio';
+
+        const matchNum = title.match(/\b\d+\b/);
+        const numeroProvv = matchNum ? matchNum[0] : '';
+
+        const id = `anac-${numeroProvv || idx}-${data.replace(/\s+/g, '_')}`;
+
+        return {
+          id,
+          tipo,
+          sede: 'Roma — sede centrale',
+          sezione: tags || 'Anticorruzione',
+          numeroProvv: numeroProvv || 'N/D',
+          data,
+          url: fullUrl,
+          snippet: snippet || `Provvedimento ANAC: ${title}`,
+          ricorso: '',
+          ecli: ''
+        };
+      }).filter(Boolean);
+    });
+
+    console.log(`[ANAC Scraper] Scraped ${results.length} results.`);
+    return results;
+  } catch (err) {
+    console.error('[ANAC Scraper] ❌ Error:', err.message);
+    return [];
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+async function scrapeGarante(keywords, page = 1) {
+  console.log(`[Garante Privacy Scraper] 🚀 Starting search for: "${keywords}" (Page: ${page})`);
+  let browser;
+  try {
+    browser = await getBrowser();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const pageObj = await context.newPage();
+
+    const searchUrl = `https://www.gpdp.it/home/ricerca/-/search/key/${encodeURIComponent(keywords)}`;
+    await pageObj.goto(searchUrl, {
+      waitUntil: 'networkidle',
+      timeout: 30000
+    });
+    
+    await pageObj.waitForSelector('body', { timeout: 15000 });
+    await pageObj.waitForTimeout(2000);
+
+    const results = await pageObj.evaluate(() => {
+      const items = Array.from(document.querySelectorAll('.card-risultato'));
+      return items.map((item, idx) => {
+        const anchors = Array.from(item.querySelectorAll('a'));
+        const docLink = anchors.find(a => a.href.includes('/docweb/'));
+        if (!docLink) return null;
+
+        const title = docLink.innerText.trim();
+        const url = docLink.href;
+
+        const dateEl = item.querySelector('.data-risultato');
+        const data = dateEl ? dateEl.innerText.trim() : '';
+
+        const typeEl = item.querySelector('.badge-pill span');
+        const tipo = typeEl ? typeEl.innerText.trim() : 'Provvedimento';
+
+        // Clean snippet by removing metadata and title
+        let textContent = item.innerText || '';
+        let snippetText = textContent
+          .replace('Tipologia:', '')
+          .replace(tipo, '')
+          .replace(data, '')
+          .replace(title, '')
+          .replace('Argomenti:', '')
+          .replace(/\n+/g, ' ')
+          .trim();
+          
+        snippetText = snippetText.replace(/\s+/g, ' ').trim();
+        
+        // Remove arguments block
+        const argsEl = item.querySelector('.ricercaArgomentiPar');
+        if (argsEl) {
+          const argsText = argsEl.parentElement ? argsEl.parentElement.innerText : '';
+          if (argsText) {
+            snippetText = snippetText.replace(argsText.replace(/\n+/g, ' ').trim(), '');
+          }
+        }
+        
+        snippetText = snippetText.replace(/^null\s*/, '').trim();
+
+        // Docweb ID (extract from URL or title)
+        const docwebMatch = url.match(/\/docweb\/(\d+)/);
+        const docwebId = docwebMatch ? docwebMatch[1] : '';
+        const id = `garante-${docwebId || idx}`;
+
+        const finalSnippet = `<b>${title}</b><br/>${snippetText || `Provvedimento Garante Privacy del ${data || 'N/D'}.`}`;
+
+        return {
+          id,
+          tipo,
+          sede: 'Roma — sede Garante',
+          sezione: 'Privacy',
+          numeroProvv: docwebId || 'N/D',
+          data: data || 'N/D',
+          url,
+          snippet: finalSnippet,
+          ricorso: '',
+          ecli: ''
+        };
+      }).filter(Boolean);
+    });
+
+    console.log(`[Garante Privacy Scraper] Scraped ${results.length} results.`);
+    return results;
+  } catch (err) {
+    console.error('[Garante Privacy Scraper] ❌ Error:', err.message);
+    return [];
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+async function scrapeAGCM(keywords, page = 1) {
+  console.log(`[AGCM Scraper] 🚀 Starting search for: "${keywords}" (Page: ${page})`);
+  let browser;
+  try {
+    browser = await getBrowser();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const pageObj = await context.newPage();
+
+    const searchUrl = `https://www.agcm.it/cerca?searchword=${encodeURIComponent(keywords)}&separatore=0&numero+risultati=60`;
+    await pageObj.goto(searchUrl, {
+      waitUntil: 'networkidle',
+      timeout: 30000
+    });
+    
+    await pageObj.waitForSelector('body', { timeout: 15000 });
+    await pageObj.waitForTimeout(2000);
+
+    const results = await pageObj.evaluate(() => {
+      const resultsContainer = document.querySelector('.search-results');
+      if (!resultsContainer) return [];
+
+      const rows = Array.from(resultsContainer.querySelectorAll('tr'));
+      return rows.map((row, idx) => {
+        const titleLink = row.querySelector('.result-title a');
+        if (!titleLink) return null;
+
+        const title = titleLink.innerText.trim();
+        const relativeUrl = titleLink.getAttribute('href') || '';
+        const url = relativeUrl.startsWith('http') ? relativeUrl : `https://www.agcm.it${relativeUrl}`;
+
+        const categoryEl = row.querySelector('.result-category span');
+        const category = categoryEl ? categoryEl.innerText.replace(/[()]/g, '').trim() : 'Provvedimento';
+
+        const snippetEl = row.querySelector('.result-body');
+        const snippetText = snippetEl ? snippetEl.innerText.trim() : '';
+
+        const matchYear = title.match(/\b(20\d{2})\b/);
+        const data = matchYear ? `01/01/${matchYear[1]}` : 'N/D';
+
+        const id = `agcm-${idx}-${title.replace(/\s+/g, '_').substring(0, 30)}`;
+
+        return {
+          id,
+          tipo: category || 'Provvedimento',
+          sede: 'Roma — sede centrale',
+          sezione: 'Concorrenza e Mercato',
+          numeroProvv: title.match(/\b\d+\b/)?.[0] || 'N/D',
+          data,
+          url,
+          snippet: `<b>${title}</b><br/>${snippetText || `Provvedimento AGCM di interesse generale.`}`,
+          ricorso: '',
+          ecli: ''
+        };
+      }).filter(Boolean);
+    });
+
+    console.log(`[AGCM Scraper] Scraped ${results.length} results.`);
+    return results;
+  } catch (err) {
+    console.error('[AGCM Scraper] ❌ Error:', err.message);
+    return [];
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+async function scrapeAGCOM(keywords, page = 1) {
+  console.log(`[AGCOM Scraper] 🚀 Starting search for: "${keywords}" (Page: ${page})`);
+  let browser;
+  try {
+    browser = await getBrowser();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const pageObj = await context.newPage();
+
+    const searchUrl = `https://www.agcom.it/provvedimenti?p_p_id=it_agcom_provvedimenti_web_portlet_ProvvedimentiWebPortlet&p_p_lifecycle=0&_it_agcom_provvedimenti_web_portlet_ProvvedimentiWebPortlet_searchQuery=${encodeURIComponent(keywords)}`;
+    await pageObj.goto(searchUrl, {
+      waitUntil: 'networkidle',
+      timeout: 30000
+    });
+
+    await pageObj.waitForSelector('body', { timeout: 15000 });
+    await pageObj.waitForTimeout(2000);
+
+    const results = await pageObj.evaluate(() => {
+      const articles = Array.from(document.querySelectorAll('article.card'));
+      return articles.map((card, idx) => {
+        const titleLink = card.querySelector('h3.card-title a');
+        if (!titleLink) return null;
+
+        const title = titleLink.innerText.trim();
+        const url = titleLink.href;
+
+        const categoryEl = card.querySelector('.category-top span.category');
+        const tipo = categoryEl ? categoryEl.innerText.trim() : 'Provvedimento';
+
+        const dateEl = card.querySelector('.category-top span.data');
+        const data = dateEl ? dateEl.innerText.trim() : 'N/D';
+
+        const snippetEl = card.querySelector('.card-subtitle');
+        const snippetText = snippetEl ? snippetEl.innerText.trim() : '';
+
+        const docIdMatch = url.match(/\/provvedimenti\/([^/?#]+)/);
+        const docId = docIdMatch ? docIdMatch[1] : `doc-${idx}`;
+        const id = `agcom-${docId}`;
+
+        // Extract number if exists in title like "delibera n. 123/24"
+        const numMatch = title.match(/\b\d+[\/\d]*\b/);
+        const numeroProvv = numMatch ? numMatch[0] : 'N/D';
+
+        return {
+          id,
+          tipo,
+          sede: 'Napoli/Roma — Sedi AGCOM',
+          sezione: 'Garanzie nelle Comunicazioni',
+          numeroProvv,
+          data,
+          url,
+          snippet: `<b>${title}</b><br/>${snippetText || `Provvedimento AGCOM.`}`,
+          ricorso: '',
+          ecli: ''
+        };
+      }).filter(Boolean);
+    });
+
+    console.log(`[AGCOM Scraper] Scraped ${results.length} results.`);
+    return results;
+  } catch (err) {
+    console.error('[AGCOM Scraper] ❌ Error:', err.message);
+    return [];
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+async function scrapeARERA(keywords, page = 1) {
+  console.log(`[ARERA Scraper] 🚀 Starting search for: "${keywords}" (Page: ${page})`);
+  let browser;
+  try {
+    browser = await getBrowser();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const pageObj = await context.newPage();
+
+    const searchUrl = `https://www.arera.it/ricerca-google?prGoogleCseQuery=${encodeURIComponent(keywords)}`;
+    await pageObj.goto(searchUrl, {
+      waitUntil: 'networkidle',
+      timeout: 35000
+    });
+
+    await pageObj.waitForSelector('body', { timeout: 20000 });
+    await pageObj.waitForTimeout(3000);
+
+    const results = await pageObj.evaluate(() => {
+      // Google CSE usually puts results inside elements with class gs-webResult
+      const elements = Array.from(document.querySelectorAll('.gs-webResult, .gsc-webResult'));
+      return elements.map((el, idx) => {
+        const titleLink = el.querySelector('a.gs-title, a.gsc-title');
+        if (!titleLink) return null;
+
+        const title = titleLink.innerText.trim();
+        const url = titleLink.href;
+
+        const snippetEl = el.querySelector('.gs-snippet, .gsc-table-result');
+        const snippetText = snippetEl ? snippetEl.innerText.trim() : '';
+
+        // Try parsing a date from snippet or title
+        const dateMatch = snippetText.match(/\b\d{2}[\/\-]\d{2}[\/\-]\d{4}\b/) || title.match(/\b\d{2}[\/\-]\d{2}[\/\-]\d{4}\b/);
+        const data = dateMatch ? dateMatch[0] : 'N/D';
+
+        let tipo = 'Delibera';
+        if (title.toLowerCase().includes('consultazione')) tipo = 'Consultazione';
+        else if (title.toLowerCase().includes('parere')) tipo = 'Parere';
+        else if (title.toLowerCase().includes('comunicato')) tipo = 'Comunicato';
+
+        const numMatch = title.match(/\b\d+[\/\d]*\b/);
+        const numeroProvv = numMatch ? numMatch[0] : 'N/D';
+
+        const id = `arera-${idx}-${numeroProvv}`;
+
+        return {
+          id,
+          tipo,
+          sede: 'Milano/Roma — Sedi ARERA',
+          sezione: 'Energia Reti e Ambiente',
+          numeroProvv,
+          data,
+          url,
+          snippet: `<b>${title}</b><br/>${snippetText || `Atto/documento ARERA.`}`,
+          ricorso: '',
+          ecli: ''
+        };
+      }).filter(Boolean);
+    });
+
+    console.log(`[ARERA Scraper] Scraped ${results.length} results.`);
+    return results;
+  } catch (err) {
+    console.error('[ARERA Scraper] ❌ Error:', err.message);
+    return [];
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+async function scrapeCONSOB(keywords, page = 1) {
+  console.log(`[CONSOB Scraper] 🚀 Starting search for: "${keywords}" (Page: ${page})`);
+  let browser;
+  try {
+    browser = await getBrowser();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const pageObj = await context.newPage();
+
+    const searchUrl = `https://www.consob.it/web/consob/ricerca?q=${encodeURIComponent(keywords)}`;
+    await pageObj.goto(searchUrl, {
+      waitUntil: 'networkidle',
+      timeout: 30000
+    });
+
+    await pageObj.waitForSelector('body', { timeout: 15000 });
+    await pageObj.waitForTimeout(2000);
+
+    const results = await pageObj.evaluate(() => {
+      const boxes = Array.from(document.querySelectorAll('.internet-box-ricerca'));
+      return boxes.map((box, idx) => {
+        const linkEl = box.querySelector('a.internet-box-ricerca__link');
+        if (!linkEl) return null;
+
+        const url = linkEl.href;
+        const titleEl = box.querySelector('.internet-box-ricerca__title');
+        const title = titleEl ? titleEl.innerText.trim() : linkEl.innerText.trim();
+
+        const categoryEl = box.querySelector('.internet-box-ricerca__category');
+        const tipo = categoryEl ? categoryEl.innerText.trim() : 'Delibera';
+
+        const snippetEl = box.querySelector('.internet-box-ricerca__abstract');
+        const snippetText = snippetEl ? snippetEl.innerText.trim() : '';
+
+        // Extract dates
+        const dateMatch = snippetText.match(/\b\d{2}[\/\-]\d{2}[\/\-]\d{4}\b/) || title.match(/\b\d{2}[\/\-]\d{2}[\/\-]\d{4}\b/);
+        const data = dateMatch ? dateMatch[0] : 'N/D';
+
+        const numMatch = title.match(/\b\d+[\/\d]*\b/) || snippetText.match(/\b\d+[\/\d]*\b/);
+        const numeroProvv = numMatch ? numMatch[0] : 'N/D';
+
+        const id = `consob-${idx}-${numeroProvv}`;
+
+        return {
+          id,
+          tipo,
+          sede: 'Roma/Milano — Sedi CONSOB',
+          sezione: 'Mercato Finanziario',
+          numeroProvv,
+          data,
+          url,
+          snippet: `<b>${title}</b><br/>${snippetText || `Atto/Bollettino CONSOB.`}`,
+          ricorso: '',
+          ecli: ''
+        };
+      }).filter(Boolean);
+    });
+
+    console.log(`[CONSOB Scraper] Scraped ${results.length} results.`);
+    return results;
+  } catch (err) {
+    console.error('[CONSOB Scraper] ❌ Error:', err.message);
+    return [];
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+
+
+
+
+
 /**
  * POST /api/search
  * Body: { modo, fonte, plesso, grado, sede, tipo, fonti, parole, logica, page, pageSize }
@@ -73,10 +685,6 @@ app.post('/api/search', async (req, res) => {
   const { modo, fonte, plesso, grado, sede, tipo, fonti, parole, logica = 'and', page = 1, pageSize = 60 } = req.body;
   
   const keywordsArr = parole || [];
-  if (keywordsArr.length === 0) {
-    console.warn('[Search API] ⚠️ Rejected: Missing keywords/parole.');
-    return res.status(400).json({ error: 'Parole chiave di ricerca obbligatorie (parole).' });
-  }
 
   // Format terms for real/simulated queries
   const positiveTerms = keywordsArr.filter(t => !t.startsWith('-'));
@@ -91,11 +699,35 @@ app.post('/api/search', async (req, res) => {
 
   // Determine which sources are targeted
   let targetRealScraper = false;
+  let targetCorteContiScraper = false;
+  let targetCorteCostituzionaleScraper = false;
+  let targetANACScraper = false;
+  let targetGaranteScraper = false;
+  let targetAGCMScraper = false;
+  let targetAGCOMScraper = false;
+  let targetARERAScraper = false;
+  let targetCONSOBScraper = false;
   let simulatedSources = [];
 
   if (modo === 'guidato') {
     if (plesso === 'amministrativa') {
       targetRealScraper = true;
+    } else if (plesso === 'contabile') {
+      targetCorteContiScraper = true;
+    } else if (plesso === 'costituzionale') {
+      targetCorteCostituzionaleScraper = true;
+    } else if (plesso === 'anac') {
+      targetANACScraper = true;
+    } else if (plesso === 'garante') {
+      targetGaranteScraper = true;
+    } else if (plesso === 'agcm') {
+      targetAGCMScraper = true;
+    } else if (plesso === 'agcom') {
+      targetAGCOMScraper = true;
+    } else if (plesso === 'arera') {
+      targetARERAScraper = true;
+    } else if (plesso === 'consob') {
+      targetCONSOBScraper = true;
     } else {
       // Any other guided plesso/authority is simulated
       simulatedSources.push(plesso || fonte || 'other');
@@ -106,9 +738,33 @@ app.post('/api/search', async (req, res) => {
     if (sourcesList.includes('tar') || sourcesList.includes('cds')) {
       targetRealScraper = true;
     }
+    if (sourcesList.includes('conti')) {
+      targetCorteContiScraper = true;
+    }
+    if (sourcesList.includes('cost')) {
+      targetCorteCostituzionaleScraper = true;
+    }
+    if (sourcesList.includes('anac')) {
+      targetANACScraper = true;
+    }
+    if (sourcesList.includes('garante')) {
+      targetGaranteScraper = true;
+    }
+    if (sourcesList.includes('agcm')) {
+      targetAGCMScraper = true;
+    }
+    if (sourcesList.includes('agcom')) {
+      targetAGCOMScraper = true;
+    }
+    if (sourcesList.includes('arera')) {
+      targetARERAScraper = true;
+    }
+    if (sourcesList.includes('consob')) {
+      targetCONSOBScraper = true;
+    }
     // Collect simulated sources
     sourcesList.forEach(s => {
-      if (s !== 'tar' && s !== 'cds') {
+      if (s !== 'tar' && s !== 'cds' && s !== 'conti' && s !== 'cost' && s !== 'anac' && s !== 'garante' && s !== 'agcm' && s !== 'agcom' && s !== 'arera' && s !== 'consob') {
         simulatedSources.push(s);
       }
     });
@@ -260,53 +916,103 @@ app.post('/api/search', async (req, res) => {
     }
   }
 
-  // 2. Run Gemini Assisted Simulation for other sources
-  if (simulatedSources.length > 0 && aiClient) {
-    const sourceNames = simulatedSources.map(s => s.toUpperCase()).join(', ');
-    console.log(`[Search API] Simulated sources requested: [${sourceNames}]. Calling Gemini to simulate results...`);
-
-    const simulationPrompt = `Sei un simulatore di banche dati giuridiche italiane.
-Genera una lista di provvedimenti giurisprudenziali o amministrativi verosimili e storicamente plausibili emessi dalle seguenti fonti: [${sourceNames}].
-I provvedimenti devono essere pertinenti ed esplicitamente correlati alle seguenti parole chiave di ricerca legale: "${formattedKeywords}".
-Genera esattamente da 2 a 4 provvedimenti per ciascuna fonte richiesta.
-
-Restituisci esclusivamente un array JSON valido (senza markdown o testo aggiuntivo prima o dopo). Ciascun oggetto dell'array deve avere esattamente questa struttura:
-{
-  "id": "sim-[sigla fonte]-[numero/anno]",
-  "tipo": "SENTENZA o DELIBERA o PROVVEDIMENTO o PARERE",
-  "sede": "es. Sezione I Roma o Sezione Regionale Veneto",
-  "sezione": "es. Sezione I o Sezione Controllo",
-  "numeroProvv": "es. 124/2025 o 45/2026",
-  "url": "https://simulazione-fonte.it/provvedimenti/[id]",
-  "snippet": "Un estratto testuale verosimile e professionale (in lingua italiana) del provvedimento, contenente riferimenti plausibili in fatto e in diritto pertinenti alle parole chiave e scritti nel tipico gergo dei magistrati o delle autorità italiane.",
-  "ricorso": "Numero del ricorso o fascicolo (es. 4521/2024)",
-  "ecli": "Codice ECLI verosimile coerente con la fonte"
-}`;
-
+  // 1b. Run Corte dei Conti Scraper if needed
+  if (targetCorteContiScraper) {
     try {
-      const response = await aiClient.models.generateContent({
-        model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
-        contents: simulationPrompt
-      });
-
-      let cleanText = response.text.trim();
-      // Remove any markdown fence if present
-      if (cleanText.startsWith('```json')) {
-        cleanText = cleanText.substring(7, cleanText.length - 3).trim();
-      } else if (cleanText.startsWith('```')) {
-        cleanText = cleanText.substring(3, cleanText.length - 3).trim();
-      }
-
-      const simulatedResults = JSON.parse(cleanText);
-      if (Array.isArray(simulatedResults)) {
-        console.log(`[Search API] Gemini simulation produced ${simulatedResults.length} records.`);
-        finalResults = [...finalResults, ...simulatedResults];
-        totalResults += simulatedResults.length;
-      }
-    } catch (simErr) {
-      console.error('[Search API] ❌ Error simulating other sources:', simErr.message);
+      console.log('[Search API] Target contains Corte dei Conti. Invoking scraper...');
+      const ccResults = await scrapeCorteConti(formattedKeywords, sede, page, pageSize);
+      finalResults = [...finalResults, ...ccResults];
+      totalResults += ccResults.length;
+    } catch (ccErr) {
+      console.error('[Search API] ❌ Error in Corte dei Conti scraper:', ccErr.message);
     }
   }
+
+  // 1c. Run Corte Costituzionale Scraper if needed
+  if (targetCorteCostituzionaleScraper) {
+    try {
+      console.log('[Search API] Target contains Corte Costituzionale. Invoking scraper...');
+      const costResults = await scrapeCorteCostituzionale(formattedKeywords, page);
+      finalResults = [...finalResults, ...costResults];
+      totalResults += costResults.length;
+    } catch (costErr) {
+      console.error('[Search API] ❌ Error in Corte Costituzionale scraper:', costErr.message);
+    }
+  }
+
+  // 1d. Run ANAC Scraper if needed
+  if (targetANACScraper) {
+    try {
+      console.log('[Search API] Target contains ANAC. Invoking scraper...');
+      const anacResults = await scrapeANAC(formattedKeywords, page);
+      finalResults = [...finalResults, ...anacResults];
+      totalResults += anacResults.length;
+    } catch (anacErr) {
+      console.error('[Search API] ❌ Error in ANAC scraper:', anacErr.message);
+    }
+  }
+
+  // 1e. Run Garante Privacy Scraper if needed
+  if (targetGaranteScraper) {
+    try {
+      console.log('[Search API] Target contains Garante Privacy. Invoking scraper...');
+      const garanteResults = await scrapeGarante(formattedKeywords, page);
+      finalResults = [...finalResults, ...garanteResults];
+      totalResults += garanteResults.length;
+    } catch (garanteErr) {
+      console.error('[Search API] ❌ Error in Garante Privacy scraper:', garanteErr.message);
+    }
+  }
+
+  // 1f. Run AGCM Scraper if needed
+  if (targetAGCMScraper) {
+    try {
+      console.log('[Search API] Target contains AGCM. Invoking scraper...');
+      const agcmResults = await scrapeAGCM(formattedKeywords, page);
+      finalResults = [...finalResults, ...agcmResults];
+      totalResults += agcmResults.length;
+    } catch (agcmErr) {
+      console.error('[Search API] ❌ Error in AGCM scraper:', agcmErr.message);
+    }
+  }
+
+  // 1g. Run AGCOM Scraper if needed
+  if (targetAGCOMScraper) {
+    try {
+      console.log('[Search API] Target contains AGCOM. Invoking scraper...');
+      const agcomResults = await scrapeAGCOM(formattedKeywords, page);
+      finalResults = [...finalResults, ...agcomResults];
+      totalResults += agcomResults.length;
+    } catch (agcomErr) {
+      console.error('[Search API] ❌ Error in AGCOM scraper:', agcomErr.message);
+    }
+  }
+
+  // 1h. Run ARERA Scraper if needed
+  if (targetARERAScraper) {
+    try {
+      console.log('[Search API] Target contains ARERA. Invoking scraper...');
+      const areraResults = await scrapeARERA(formattedKeywords, page);
+      finalResults = [...finalResults, ...areraResults];
+      totalResults += areraResults.length;
+    } catch (areraErr) {
+      console.error('[Search API] ❌ Error in ARERA scraper:', areraErr.message);
+    }
+  }
+
+  // 1i. Run CONSOB Scraper if needed
+  if (targetCONSOBScraper) {
+    try {
+      console.log('[Search API] Target contains CONSOB. Invoking scraper...');
+      const consobResults = await scrapeCONSOB(formattedKeywords, page);
+      finalResults = [...finalResults, ...consobResults];
+      totalResults += consobResults.length;
+    } catch (consobErr) {
+      console.error('[Search API] ❌ Error in CONSOB scraper:', consobErr.message);
+    }
+  }
+
+  // Simulation disabled per user request: return empty results for non-integrated sources
 
   // Handle fallback if absolutely nothing was found or simulated
   if (finalResults.length === 0) {
@@ -374,7 +1080,29 @@ app.post('/api/export', async (req, res) => {
             await page.goto(item.url, { waitUntil: 'domcontentloaded', timeout: 25000 });
             await page.waitForSelector('body', { timeout: 15000 });
             await page.waitForTimeout(1500);
-            judgmentText = await page.evaluate(() => document.body ? document.body.innerText : '');
+            judgmentText = await page.evaluate((url) => {
+              if (url.includes('giurcost.org')) {
+                const contentEl = document.querySelector('#post-content') || document.querySelector('.Section1') || document.querySelector('.card-body');
+                return contentEl ? contentEl.innerText : (document.body ? document.body.innerText : '');
+              }
+              if (url.includes('anticorruzione.it')) {
+                const articles = Array.from(document.querySelectorAll('.journal-content-article'));
+                const mainArticle = articles.find(el => {
+                  const title = el.getAttribute('data-analytics-asset-title') || '';
+                  return title && !['SOCIAL HEADER', 'SOCIAL FOOTER', 'SOCIAL', 'Dove siamo', 'Pec', 'Numero di telefono footer'].includes(title);
+                });
+                return mainArticle ? mainArticle.innerText : (document.body ? document.body.innerText : '');
+              }
+              if (url.includes('gpdp.it') || url.includes('garanteprivacy.it')) {
+                const contentEl = document.querySelector('#div-to-print') || document.querySelector('.journal-content-article') || document.body;
+                return contentEl ? contentEl.innerText : '';
+              }
+              if (url.includes('agcm.it')) {
+                const contentEls = Array.from(document.querySelectorAll('.description-content'));
+                return contentEls.length > 0 ? contentEls.map(el => el.innerText).join('\n') : (document.body ? document.body.innerText : '');
+              }
+              return document.body ? document.body.innerText : '';
+            }, item.url);
           }
         } catch (err) {
           console.error(`[Export API] Error fetching ${item.url}:`, err.message);
@@ -445,6 +1173,16 @@ app.post('/api/summarize', async (req, res) => {
         contents: simulateTextPrompt
       });
       judgmentText = response.text;
+    } else if (url.includes('/api/corte-conti/download')) {
+      console.log('[Summarize API] Local proxy download URL detected. Fetching buffer directly...');
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to download proxy document: ${response.statusText}`);
+      }
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const parser = new PDFParse({ data: buffer });
+      const pdfData = await parser.getText();
+      judgmentText = pdfData.text;
     } else if (url.toLowerCase().includes('.pdf')) {
       console.log('[Summarize API] [Step 1/3] URL detected as PDF. Fetching buffer...');
       const response = await fetch(url, {
@@ -479,9 +1217,29 @@ app.post('/api/summarize', async (req, res) => {
       await page.waitForTimeout(2000);
 
       console.log('[Summarize API] Extracting body innerText...');
-      judgmentText = await page.evaluate(() => {
+      judgmentText = await page.evaluate((url) => {
+        if (url.includes('giurcost.org')) {
+          const contentEl = document.querySelector('#post-content') || document.querySelector('.Section1') || document.querySelector('.card-body');
+          return contentEl ? contentEl.innerText : (document.body ? document.body.innerText : '');
+        }
+        if (url.includes('anticorruzione.it')) {
+          const articles = Array.from(document.querySelectorAll('.journal-content-article'));
+          const mainArticle = articles.find(el => {
+            const title = el.getAttribute('data-analytics-asset-title') || '';
+            return title && !['SOCIAL HEADER', 'SOCIAL FOOTER', 'SOCIAL', 'Dove siamo', 'Pec', 'Numero di telefono footer'].includes(title);
+          });
+          return mainArticle ? mainArticle.innerText : (document.body ? document.body.innerText : '');
+        }
+        if (url.includes('gpdp.it') || url.includes('garanteprivacy.it')) {
+          const contentEl = document.querySelector('#div-to-print') || document.querySelector('.journal-content-article') || document.body;
+          return contentEl ? contentEl.innerText : '';
+        }
+        if (url.includes('agcm.it')) {
+          const contentEls = Array.from(document.querySelectorAll('.description-content'));
+          return contentEls.length > 0 ? contentEls.map(el => el.innerText).join('\n') : (document.body ? document.body.innerText : '');
+        }
         return document.body ? document.body.innerText : '';
-      });
+      }, url);
     }
 
     if (!judgmentText || judgmentText.trim().length < 200) {
@@ -500,14 +1258,14 @@ app.post('/api/summarize', async (req, res) => {
       });
     }
 
-    const promptDetailed = `Sei un assistente legale esperto di diritto amministrativo italiano. Analizza il seguente testo di un provvedimento (sentenza/ordinanza/decreto/parere) della Giustizia Amministrativa italiana ed elabora un riassunto estremamente chiaro, sintetico e professionale strutturato in lingua italiana.\n\nStruttura il riassunto esattamente in questo formato Markdown:\n\n# Riassunto Sentenza: [Mettere il Numero del provvedimento / Anno e il TAR/Organo Decidente]\n\n## 1. Oggetto del Contendere\n[Spiega in 2-3 frasi qual è l'oggetto della causa, la materia e il provvedimento amministrativo impugnato]\n\n## 2. Decisione dell'Organo Giudicante\n[Indica chiaramente se il ricorso è stato accolto, respinto, dichiarato improcedibile o inammissibile e la formula decisionale principale]\n\n## 3. Motivazioni Principali della Decisione\n[Fornisci un elenco puntato dettagliato dei principali punti in fatto e in diritto che hanno portato il giudice a questa decisione]\n\n## 4. Punti Chiave e Massime da Ricordare\n[Sintetizza i principi di diritto espressi o le norme chiave interpretate nella decisione]\n\n---\nEcco il testo del provvedimento:\n${judgmentText}`;
+    const promptDetailed = `Sei un assistente legale esperto di diritto pubblico e amministrativo italiano. Analizza il seguente testo di un provvedimento (sentenza/ordinanza/decreto/parere) della Repubblica Italiana ed elabora un riassunto estremamente chiaro, sintetico e professionale strutturato in lingua italiana. NOTA: Se il testo del provvedimento è scritto in un'altra lingua (es. in tedesco come a volte accade per la sezione di Bolzano), traducilo ed elabora comunque il riassunto finale interamente in lingua italiana.\n\nStruttura il riassunto esattamente in questo formato Markdown:\n\n# Riassunto Sentenza: [Mettere il Numero del provvedimento / Anno e il TAR/Organo Decidente]\n\n## 1. Oggetto del Contendere\n[Spiega in 2-3 frasi qual è l'oggetto della causa, la materia e il provvedimento amministrativo impugnato]\n\n## 2. Decisione dell'Organo Giudicante\n[Indica chiaramente se il ricorso è stato accolto, respinto, dichiarato improcedibile o inammissibile e la formula decisionale principale]\n\n## 3. Motivazioni Principali della Decisione\n[Fornisci un elenco puntato dettagliato dei principali punti in fatto e in diritto che hanno portato il giudice a questa decisione]\n\n## 4. Punti Chiave e Massime da Ricordare\n[Sintetizza i principi di diritto espressi o le norme chiave interpretate nella decisione]\n\n---\nEcco il testo del provvedimento:\n${judgmentText}`;
 
-    const promptQuick = `Sei un assistente legale esperto di diritto amministrativo italiano. Analizza il seguente testo di un provvedimento (sentenza/ordinanza/decreto/parere) della Giustizia Amministrativa italiana ed elabora una sintesi ultra-rapida (massimo 100 parole) in lingua italiana.\n\nStruttura la sintesi esattamente in questo formato Markdown:\n\n# Sintesi Rapida: [Numero Provvedimento / Anno - TAR/Organo Decidente]\n\n* **Oggetto della Causa:** [Spiega in una singola frase chiara di cosa tratta la causa]\n* **Esito della Decisione:** [Indica l'esito principale: es. Accolto / Respinto / Inammissibile]\n* **Motivazione/Principio Cardine:** [Spiega il motivo principale della decisione o il principio cardine stabilito dai giudici in max due frasi]\n\n---\nEcco il testo del provvedimento:\n${judgmentText}`;
+    const promptQuick = `Sei un assistente legale esperto di diritto pubblico e amministrativo italiano. Analizza il seguente testo di un provvedimento (sentenza/ordinanza/decreto/parere) della Repubblica Italiana ed elabora una sintesi ultra-rapida (massimo 100 parole) in lingua italiana. NOTA: Se il testo del provvedimento è scritto in un'altra lingua (es. in tedesco come a volte accade per la sezione di Bolzano), traducilo ed elabora comunque la sintesi finale interamente in lingua italiana.\n\nStruttura la sintesi esattamente in questo formato Markdown:\n\n# Sintesi Rapida: [Numero Provvedimento / Anno - TAR/Organo Decidente]\n\n* **Oggetto della Causa:** [Spiega in una singola frase chiara di cosa tratta la causa]\n* **Esito della Decisione:** [Indica l'esito principale: es. Accolto / Respinto / Inammissibile]\n* **Motivazione/Principio Cardine:** [Spiega il motivo principale della decisione o il principio cardine stabilito dai giudici in max due frasi]\n\n---\nEcco il testo del provvedimento:\n${judgmentText}`;
 
     const prompt = format === 'quick' ? promptQuick : promptDetailed;
 
     console.log('[Summarize API] [Step 3/3] Sending prompt to Google Gemini API...');
-    const modelToUse = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+    const modelToUse = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
     let response;
     try {
       console.log(`[Summarize API] Attempting generation with model: ${modelToUse}`);
@@ -517,7 +1275,7 @@ app.post('/api/summarize', async (req, res) => {
       });
     } catch (apiErr) {
       console.warn(`[Summarize API] Primary model ${modelToUse} failed. Trying fallback model... Details:`, apiErr.message);
-      const fallbackModel = modelToUse === 'gemini-2.0-flash' ? 'gemini-2.5-flash' : 'gemini-2.0-flash';
+      const fallbackModel = modelToUse === 'gemini-2.5-flash' ? 'gemini-1.5-flash' : 'gemini-2.5-flash';
       console.log(`[Summarize API] Attempting generation with fallback model: ${fallbackModel}`);
       response = await aiClient.models.generateContent({
         model: fallbackModel,
@@ -558,8 +1316,86 @@ app.post('/api/summarize', async (req, res) => {
   }
 });
 
-import path from 'path';
-import { fileURLToPath } from 'url';
+/**
+ * GET /api/corte-conti/download
+ * Proxy endpoint to search and download attachments from Corte dei Conti
+ */
+app.get('/api/corte-conti/download', async (req, res) => {
+  const { sede, tipo, numero, data } = req.query;
+  if (!sede || !numero) {
+    return res.status(400).json({ error: 'Parametri insufficienti per identificare il documento.' });
+  }
+
+  console.log(`[Proxy Download] 🚀 Requesting: ${tipo} ${sede} N. ${numero} del ${data}`);
+
+  let browser;
+  try {
+    browser = await getBrowser();
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const pageObj = await context.newPage();
+
+    await pageObj.goto('https://banchedati.corteconti.it/', {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000
+    });
+    
+    await pageObj.waitForSelector('#inputRicerca', { timeout: 15000 });
+    
+    // Exact search using number and region
+    const searchTerms = `${numero} ${sede}`;
+    await pageObj.fill('#inputRicerca', searchTerms);
+    await pageObj.click('#buttonSearch');
+
+    await pageObj.waitForLoadState('networkidle', { timeout: 20000 });
+    await pageObj.waitForTimeout(4000);
+
+    const rowSelector = 'tr.align-top';
+    const rowCount = await pageObj.locator(rowSelector).count();
+    
+    let downloadTriggered = false;
+    
+    for (let i = 0; i < rowCount; i++) {
+      const row = pageObj.locator(rowSelector).nth(i);
+      const rowText = await row.innerText();
+      
+      if (rowText.includes(numero) && rowText.includes(tipo)) {
+        console.log(`[Proxy Download] Matching row found at index ${i}. Clicking download button...`);
+        const downloadBtn = row.locator('button.btn-datatable');
+        
+        if (await downloadBtn.count() > 0) {
+          const [download] = await Promise.all([
+            pageObj.waitForEvent('download', { timeout: 20000 }),
+            downloadBtn.click()
+          ]);
+          
+          const pathFile = await download.path();
+          const bufferFile = await fs.promises.readFile(pathFile);
+          const filename = download.suggestedFilename() || `${tipo}_${numero}.pdf`;
+          
+          res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+          res.setHeader('Content-Type', 'application/octet-stream');
+          res.send(bufferFile);
+          
+          downloadTriggered = true;
+          break;
+        }
+      }
+    }
+
+    if (!downloadTriggered) {
+      console.warn('[Proxy Download] No matching document found with download button.');
+      res.status(404).json({ error: 'Documento non trovato o allegato non disponibile.' });
+    }
+
+  } catch (err) {
+    console.error('[Proxy Download] ❌ Error:', err.message);
+    res.status(500).json({ error: 'Errore durante l\'intercettazione del download.', details: err.message });
+  } finally {
+    if (browser) await browser.close();
+  }
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -1,0 +1,34 @@
+{
+  "inputs": [
+    {
+      "tag": "TEXTAREA",
+      "id": "h-captcha-response-0vttnxsbw2e",
+      "name": "h-captcha-response",
+      "type": "textarea",
+      "placeholder": "",
+      "class": "",
+      "value": "",
+      "text": ""
+    },
+    {
+      "tag": "INPUT",
+      "id": "cf_input",
+      "name": "cfi",
+      "type": "hidden",
+      "placeholder": "",
+      "class": "",
+      "value": "",
+      "text": ""
+    },
+    {
+      "tag": "INPUT",
+      "id": "",
+      "name": "",
+      "type": "submit",
+      "placeholder": "",
+      "class": "btn btn-success btn-sm",
+      "value": "Submit",
+      "text": ""
+    }
+  ]
+}
