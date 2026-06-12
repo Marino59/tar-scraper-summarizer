@@ -150,7 +150,66 @@ const SOURCES = [
   { k: "consob", fam: "Autorità indipendenti", label: "CONSOB", sub: "Delibere · Comunicazioni", open: true, route: "consob.it" }
 ];
 
+const TOS_TITLE = "TERMINI DI SERVIZIO, AVVERTENZE LEGALI E DISCLAIMER ASSOLUTO DI RESPONSABILITÀ";
+
+const renderTosText = () => (
+  <React.Fragment>
+    <h3>1. Oggetto del servizio e descrizione tecnica dell'applicativo</h3>
+    <p>
+      Il presente applicativo informatico, denominato convenzionalmente <strong>“TAR Scraper & Summarizer”</strong> (di seguito, per brevità, "l'Applicativo" o "il Software"), è un mero strumento digitale automatizzato finalizzato all'ausilio della ricerca documentale e redazionale in materia di diritto amministrativo.
+    </p>
+    <p>
+      L’Applicativo esegue, su input autonomo ed esclusivo dell’utente, un’operazione tecnica di recupero automatico (scraping) di provvedimenti giurisprudenziali (sentenze, ordinanze, decreti) pubblicati e resi accessibili sui canali ufficiali della Giustizia Amministrativa. Successivamente al recupero del testo originale, il Software elabora una sintesi testuale astratta (comprendente la massimazione del principio di diritto, il riassunto della fattispecie di fatto e l'esito del gravame) mediante l'ausilio di modelli di computazione linguistica basati su Intelligenza Artificiale (IA).
+    </p>
+
+    <h3>2. Natura puramente indicativa e divieto di utilizzo professionale</h3>
+    <p>
+      In conformità con lo stile delle utilità d'uso e delle piattaforme di ausilio per professionisti si fa espressa avvertenza che:
+    </p>
+    <ul>
+      <li>
+        <strong>Uso non professionale e non vincolante:</strong> L’Applicativo è strutturato e messo a disposizione per un utilizzo esclusivamente orientativo, preliminare e di carattere didattico o illustrativo. Nessun risultato generato dall'algoritmo può essere inteso, interpretato o utilizzato come surrogato di un’attività di consulenza legale, di un parere pro-veritate, o di una valutazione strategica circa la fondatezza o l'esito di un contenzioso pendente o futuro.
+      </li>
+      <li>
+        <strong>Nessun esonero dall'onere di verifica:</strong> I risultati visualizzati a schermo non esonerano in alcun modo l’utente – sia esso un privato cittadino, un funzionario pubblico o un professionista del diritto – dall'onere tassativo e inderogabile di reperire, leggere, analizzare e verificare il testo integrale e ufficiale del provvedimento giurisprudenziale citato. La giurisprudenza è soggetta a mutamenti repentini e interpretazioni complesse che nessuna sintesi algoritmica può ponderare.
+      </li>
+    </ul>
+
+    <h3>3. Esclusione totale di garanzie e clausola di irresponsabilità per "allucinazioni" dell'IA</h3>
+    <p>
+      I processi di massimazione e riassunto avvengono in tempo reale senza il controllo preventivo o la validazione umana da parte di operatori giuridici. Pertanto:
+    </p>
+    <ul>
+      <li>
+        <strong>Inaccuratezza intrinseca dei modelli IA:</strong> L’utente prende atto che i modelli di Intelligenza Artificiale, per loro natura statistico-computazionale, possono generare testi parziali, distorti, imprecisi o totalmente errati (fenomeno tecnicamente noto come "allucinazione del modello"). L'algoritmo potrebbe confondere le posizioni delle parti (ricorrente, resistente, controinteressato), travisare l'esito del giudizio (es. scambiare una declaratoria di inammissibilità per un accoglimento nel merito) o citare riferimenti normativi abrogati o inesistenti.
+      </li>
+      <li>
+        <strong>Negazione di garanzia:</strong> Lo Studio Legale dello sviluppatore, i programmatori e i titolari del dominio web non rilasciano alcuna garanzia, espressa o implicita, circa la commerciabilità, l'idoneità a scopi specifici, la correttezza formale, la completezza testuale, la precisione e l'aggiornamento dei riassunti mostrati. Il servizio viene fornito nello stato di fatto e di diritto in cui si trova ("as is"), con tutti i suoi potenziali difetti.
+      </li>
+    </ul>
+
+    <h3>4. Clausola di manleva e limitazione della responsabilità risarcitoria</h3>
+    <p>
+      L'utente è l'unico ed esclusivo responsabile dell'utilizzo dell'Applicativo, nonché di qualsiasi decisione, azione, omissione, transazione o strategia processuale intrapresa sulla base dei dati visualizzati.
+    </p>
+    <p>
+      <strong>Esclusione dei danni:</strong> Nei limiti massimi consentiti dagli articoli 1229 e seguenti del Codice Civile italiano, lo Studio Legale Poli, l'Avvocato Francesco Poli, i programmatori e i titolari del dominio web non saranno in alcun caso responsabili per danni diretti, indiretti, speciali, incidentali, consequenziali o punitivi (inclusi, a titolo esemplificativo, perdita di profitto, interruzione dell'attività, perdita di informazioni o altre perdite pecuniarie) derivanti dall'uso o dall'impossibilità di usare l'Applicativo, anche qualora fossero stati informati della possibilità di tali danni.
+    </p>
+
+    <div className="tos-content-footer">
+      Studio Legale Francesco Poli — Corso Palladio 134, Vicenza
+    </div>
+  </React.Fragment>
+);
+
 function App() {
+  // TOS/Legal state
+  const [tosAccepted, setTosAccepted] = useState(() => {
+    return localStorage.getItem('tar_tos_accepted') === 'true';
+  });
+  const [showTosDetail, setShowTosDetail] = useState(false);
+  const [tosChecked, setTosChecked] = useState(false);
+
   // Search engine state
   const [mode, setMode] = useState('guidata'); // 'guidata' | 'global'
   const [macro, setMacro] = useState(null); // 'giurisdizione' | 'autorita'
@@ -180,6 +239,21 @@ function App() {
 
   const [autoSummaries, setAutoSummaries] = useState({});
   const [loadingAutoSummaries, setLoadingAutoSummaries] = useState({});
+
+  const handleAccept = () => {
+    if (tosChecked) {
+      localStorage.setItem('tar_tos_accepted', 'true');
+      setTosAccepted(true);
+    }
+  };
+
+  const handleDecline = () => {
+    window.location.href = 'https://www.google.com';
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
 
   // Helper functions for tags
   const addTerm = (text) => {
@@ -1022,6 +1096,11 @@ function App() {
         )}
 
         <p className="note">Concept front-end collegato alle banche dati ufficiali. Per le fonti non ancora integrate, il sistema genera una simulazione intelligente basata sulle parole chiave fornite.</p>
+        <div className="footer-tos-link-container">
+          <button className="footer-tos-link" onClick={() => setShowTosDetail(true)}>
+            Termini di Servizio & Disclaimer Legale
+          </button>
+        </div>
       </main>
 
       {/* Summary Slide-out Drawer */}
@@ -1051,6 +1130,113 @@ function App() {
           )
         )}
       </aside>
+
+      {/* Container for printing the TOS cleanly to PDF */}
+      <div className="tos-print-container">
+        <h1>{TOS_TITLE}</h1>
+        {renderTosText()}
+      </div>
+
+      {/* TOS Block Modal at startup */}
+      {!tosAccepted && (
+        <div className="tos-overlay">
+          <div className="tos-modal">
+            <div className="tos-header">
+              <h2>{TOS_TITLE}</h2>
+              <p>Per utilizzare l'Applicativo "TAR Scraper & Summarizer", è necessario leggere e accettare i termini di servizio e il disclaimer legale sottostanti.</p>
+            </div>
+            <div className="tos-content">
+              {renderTosText()}
+            </div>
+            <div className="tos-footer">
+              <label className="tos-accept-label">
+                <input 
+                  type="checkbox" 
+                  checked={tosChecked} 
+                  onChange={(e) => setTosChecked(e.target.checked)} 
+                />
+                Dichiaro di aver letto, compreso e di accettare integralmente i Termini di Servizio, le Avvertenze Legali e il Disclaimer di Responsabilità sopra indicati.
+              </label>
+              <div className="tos-actions">
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <a 
+                    className="btn-action" 
+                    href="/termini_di_servizio.pdf" 
+                    download="termini_di_servizio.pdf"
+                  >
+                    Scarica PDF
+                  </a>
+                  <button 
+                    className="btn-action" 
+                    onClick={handlePrint}
+                  >
+                    Stampa
+                  </button>
+                </div>
+                <div className="tos-actions-right">
+                  <button 
+                    className="btn-action" 
+                    style={{ borderColor: 'var(--warn)', color: 'var(--warn)' }}
+                    onClick={handleDecline}
+                  >
+                    Rifiuta ed Esci
+                  </button>
+                  <button 
+                    className="btn-action btn-action-primary" 
+                    disabled={!tosChecked}
+                    onClick={handleAccept}
+                  >
+                    Accetta e Continua
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOS Consultation Modal from Footer */}
+      {showTosDetail && (
+        <div className="tos-overlay" onClick={() => setShowTosDetail(false)}>
+          <div className="tos-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="tos-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h2>{TOS_TITLE}</h2>
+                <p>Consultazione dei Termini di Servizio vigenti.</p>
+              </div>
+              <button className="btn-close" onClick={() => setShowTosDetail(false)}>&times;</button>
+            </div>
+            <div className="tos-content">
+              {renderTosText()}
+            </div>
+            <div className="tos-footer">
+              <div className="tos-actions" style={{ justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <a 
+                    className="btn-action" 
+                    href="/termini_di_servizio.pdf" 
+                    download="termini_di_servizio.pdf"
+                  >
+                    Scarica PDF
+                  </a>
+                  <button 
+                    className="btn-action" 
+                    onClick={handlePrint}
+                  >
+                    Stampa
+                  </button>
+                </div>
+                <button 
+                  className="btn-action btn-action-primary" 
+                  onClick={() => setShowTosDetail(false)}
+                >
+                  Chiudi
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </React.Fragment>
   );
 }
